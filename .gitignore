@@ -1,0 +1,461 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+#  Usually these files are written by a python script from a template
+#  before PyInstaller builds the exe, so as to inject date/other infos into it.
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+.cursorrules
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+#   For a library or package, you might want to ignore these files since the code is
+#   intended to run in multiple environments; otherwise, check them in:
+# .python-version
+
+# pipenv
+#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
+#   However, in case of collaboration, if having platform-specific dependencies or dependencies
+#   having no cross-platform support, pipenv may install dependencies that don't work, or not
+#   install all needed dependencies.
+#Pipfile.lock
+
+# poetry
+#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
+#   This is especially recommended for binary packages to ensure reproducibility, and is more
+#   commonly ignored for libraries.
+#   https://python-poetry.org/docs/basic-usage/#commit-your-poetrylock-file-to-version-control
+#poetry.lock
+
+# pdm
+#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
+#pdm.lock
+#   pdm stores project-wide configurations in .pdm.toml, but it is recommended to not include it
+#   in version control.
+#   https://pdm.fming.dev/#use-with-ide
+.pdm.toml
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# PyCharm
+#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
+#  be added to the global gitignore or merged into this project gitignore.  For a PyCharm
+#  project, it is recommended to include the following files:
+#  .idea/
+#  *.iml
+#  *.ipr
+#  *.iws
+
+# Meetara Core specific
+# Virtual environment
+meetara-env/
+.venv-tara-py312/
+
+# Model files and caches
+models/
+*.bin
+*.safetensors
+*.onnx
+*.pt
+*.pth
+
+# Vector stores (uncompressed - use vectorstore.zip instead)
+vectorstore/
+chroma_db/
+*.chroma
+
+# Data directories (uncompressed - use compressed zip files instead)
+downloads/          # Downloaded PDFs and documents (4.71 GB)
+images/              # Extracted images from documents (3.61 GB) - use images.zip
+data/                # Uploaded and exported data
+
+# Compressed files for git (tracked via Git LFS)
+# Note: These zip files are tracked in git using Git LFS
+# vectorstore.zip - Compressed vectorstore (use scripts/compress_for_git.ps1)
+# images.zip - Compressed images (use scripts/compress_for_git.ps1)
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.temp
+
+# Audio/Video files
+*.wav
+*.mp3
+*.mp4
+*.avi
+*.mov
+
+# Image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.tiff
+
+# Document files (for testing)
+*.pdf
+*.docx
+*.doc
+*.txt
+
+# Documentation (exclude docs folder and archive, but keep essential docs)
+docs/archive/
+docs/*.md
+!docs/QUICK_START.md
+!docs/CONTRIBUTING.md
+!docs/ARCHITECTURE.md
+!README.md
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+*.lnk
+
+# HuggingFace cache
+.cache/
+huggingface/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Environment variables
+.env
+.env.local
+.env.production
+
+# API keys and secrets
+secrets.json
+config.json
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+
+# Compressed files (exclude all, but allow specific ones for git)
+*.zip
+!vectorstore.zip
+!images.zip
+*.tar.gz
+*.rar
+
+# Node modules (if any frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build directories
+build/
+dist/
+*.egg-info/
+
+# Documentation builds
+docs/_build/
+site/
+
+# Docker
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# Kubernetes
+*.yaml
+*.yml
+!docker-compose.yml
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+
+# Local development
+local/
+dev/
+test_data/
+sample_data/
+
+# Performance profiling
+*.prof
+*.lprof
+
+# Memory dumps
+*.dmp
+
+# Crash reports
+crash_reports/
+*.crash
+
+# System files
+*.sys
+*.dll
+*.exe
+*.so
+*.dylib
+
+# Python specific
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.py[cod]
+*$py.class
+
+# Cython
+*.c
+*.cpp
+*.h
+*.hpp
+
+# Compiled extensions
+*.so
+*.dll
+*.dylib
+
+# Distribution
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+bin/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# celery beat schedule file
+celerybeat-schedule
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv-meetara
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/ 

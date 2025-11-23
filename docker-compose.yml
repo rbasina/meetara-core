@@ -1,0 +1,64 @@
+version: '3.8'
+
+# Meetara Core - Production Docker Compose Configuration
+# 
+# Quick Start:
+#   1. Copy env.example to .env
+#   2. docker-compose up -d
+#   3. Access API at http://localhost:8000
+#   4. View docs at http://localhost:8000/docs
+#
+# Note: First run will download models from Hugging Face (~1.7GB)
+#       Models are cached in ~/.cache/huggingface for reuse
+
+services:
+  meetara-core:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # API Configuration
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - DEBUG=false
+      - LOG_LEVEL=INFO
+      
+      # Critical Model Configuration
+      - USE_MEETARA_MODELS=true
+      - MEETARA_HF_MODEL_ID=meetara-lab/meetara-qwen3-1.7b-gguf
+      - MEETARA_HF_MODEL_FILE=meetara-qwen3-1.7b-Q4_K_M.gguf
+      
+      # Performance Tuning (Production defaults)
+      - ENABLE_IMAGE_EXTRACTION_DURING_QUERY=false
+      - FILTER_RAG_CONTEXT_BY_RELEVANCE=false
+      
+      # LLM Configuration
+      - LLM_TEMPERATURE=0.7
+      - LOCAL_LLM_MAX_LENGTH=640
+    volumes:
+      - ./vectorstore:/app/vectorstore
+      - ./models:/app/models
+      - ./logs:/app/logs
+      - ./data:/app/data
+      - ./.env:/app/.env
+      # Mount HF cache for model persistence (optional but recommended)
+      - ~/.cache/huggingface:/home/meetara/.cache/huggingface
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Add Redis for caching (future enhancement)
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
+
+volumes:
+  # redis_data: 
