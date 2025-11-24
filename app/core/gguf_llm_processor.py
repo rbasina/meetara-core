@@ -230,7 +230,7 @@ class MeetaraGGUFProcessor:
                 temperature=self.config.llm_temperature,
                 top_p=self.config.local_llm_top_p,
                 top_k=self.config.local_llm_top_k,
-                stop=["</s>", "\n\nHuman:", "\n\nAssistant:", "(End of response)", "Final output:", "🛑", "✅ Final Action:", "✅ Corrected direction:", "✅ This response"],
+                stop=["</s>", "<|im_end|>", "\n\nHuman:", "\n\nAssistant:", "(End of response)", "Final output:", "🛑", "STOP"],
                 echo=False
             )
             
@@ -238,6 +238,48 @@ class MeetaraGGUFProcessor:
             
             # Extract response text
             response_text = response["choices"][0]["text"].strip()
+            
+            # ✅ Minimal safety net: Only remove obvious duplicates (prevention should handle most cases)
+            # Find first Sources section - response should end there
+            first_sources_idx = response_text.find("**Sources**")
+            
+            if first_sources_idx > 0:
+                # Find end of Sources section (after bullet points)
+                sources_end = first_sources_idx + len("**Sources**")
+                remaining = response_text[sources_end:]
+                lines = remaining.split('\n')
+                
+                # Count Sources bullet points (typically 3-5)
+                bullet_count = 0
+                for i, line in enumerate(lines):
+                    if line.strip().startswith('-'):
+                        bullet_count += 1
+                    elif line.strip() and bullet_count >= 3:
+                        # Found end of Sources section
+                        sources_section_end = sources_end + sum(len(l) + 1 for l in lines[:i])
+                        break
+                else:
+                    # Sources section continues to end of text
+                    sources_section_end = len(response_text)
+                
+                # If there's content after Sources, it's repetition - truncate it
+                if sources_section_end < len(response_text):
+                    text_after = response_text[sources_section_end:].strip()
+                    if text_after:
+                        response_text = response_text[:sources_section_end].strip()
+                        agent_logger.warning(f"⚠️ Removed {len(text_after)} chars after Sources (should have been prevented by prompt)")
+            
+            # Check for duplicate Quick Answer at start (shouldn't happen with proper prompt)
+            if response_text.count("**Quick Answer:**") > 1 or response_text.count("Quick Answer:") > 1:
+                first_qa = response_text.find("**Quick Answer:**")
+                if first_qa < 0:
+                    first_qa = response_text.find("Quick Answer:")
+                second_qa = response_text.find("**Quick Answer:**", first_qa + 1)
+                if second_qa < 0:
+                    second_qa = response_text.find("Quick Answer:", first_qa + 10)
+                if second_qa > 0:
+                    response_text = response_text[:second_qa].strip()
+                    agent_logger.warning(f"⚠️ Removed duplicate Quick Answer (should have been prevented by prompt)")
             
             # ✅ DEBUG: Check if response follows structure
             has_title = "**" in response_text and response_text.count("**") >= 2
@@ -341,7 +383,8 @@ class MeetaraGGUFProcessor:
         
         # Get domain-appropriate sections
         section_headers = self._get_domain_category_sections(domain)
-        sections_text = "\n   ".join([f"- {section}" for section in section_headers])
+        # Show headers EXACTLY as they should appear (just the headers, no instructions)
+        sections_list = "\n".join([f"{section}" for section in section_headers])
         
         # ✅ DEBUG: Log which sections are being used for this domain
         agent_logger.debug(f"📋 Domain '{domain}' sections: {section_headers}")
@@ -351,99 +394,148 @@ class MeetaraGGUFProcessor:
 
         # Pre-compute section text for lightweight reminders
         def build_inline_template(headers: List[str]) -> str:
-            lines = ["**Quick Answer:** <direct fact + justification>"]
-            for idx, header in enumerate(headers, start=1):
-                lines.append(f"{idx}. {header}")
+            lines = ["**Quick Answer:** <direct answer>"]
+            for header in headers:
+                lines.append(f"{header}")
                 lines.append("- key point")
+            lines.append("**Conclusion**")
+            lines.append("<summary>")
             lines.append("**Sources**")
-            lines.append("- Source: <authoritative reference>")
-            lines.append("- Source: <optional second reference>")
+            lines.append("- Source: <reference>")
             return "\n".join(lines)
 
-        # Base system prompt with adaptive structure
-        if domain == "general_knowledge":
-            system_prompt = f"""You are meeTARA, a precise and factual general-knowledge assistant. Provide compact, well-organized answers that draw on reputable global knowledge bases.
-
-RESPONSE STRUCTURE (GENERAL KNOWLEDGE):
-**Quick Answer:** State the direct answer in one sentence and include a short justification (e.g., the governing authority or historical decision).
-1. **Essential Facts & Definitions** – Highlight the most important facts or definitions the reader must know.
-2. **Key Details & Context** – Provide brief supporting details (location, governance, geography, history, etc.).
-3. **Historical or Global Perspective** – Outline relevant historical milestones or how the fact is recognized internationally.
-4. **Practical Examples & Applications** – Offer 1-3 practical examples that show why this fact matters (only if relevant).
-5. **Further Resources & Next Steps** – Suggest one or two reliable resources or next steps for deeper exploration (optional but recommended).
-6. **Sources** – Cite authoritative sources (no more than 3 bullet items). If using general knowledge, say “Based on general knowledge and authoritative references (e.g., government publications, UNESCO, CIA World Factbook).”
-
-CONTENT REQUIREMENTS:
-- Keep the entire response concise (approximately 250-400 words).
-- Use bullet points (-) inside sections for clarity.
-- Maintain a neutral, informative tone. Avoid filler or unsupported speculation.
-- In the **Sources** section, list up to 3 authoritative references as bullet items only (no extra commentary). If more sources exist, select the top 1-3 most authoritative and omit the rest.
-- Use 1-2 sentences per bullet point.
-
-FORMATTING RULES:
-- Use **bold** only for section headers listed above.
-- Avoid blank lines between bullet points.
-- Ensure the structure follows the order above without adding extra sections.
-- Do not add any text after the **Sources** bullet list."""
-            
-            # Lightweight checklist instead of full blueprint
-            section_names = ", ".join(section_headers)
-            system_prompt += f"""
-
-STRUCTURE CHECKLIST:
-- Start with **Quick Answer** (concise fact + justification).
-- You MUST include every section, in this exact order: {section_names}. Each section uses bullet points, no blank lines.
-- Do not merge or skip sections. Missing any section is an error.
-- Close with **Sources** using 1-3 bullet items (no commentary after the list).
-
-MANDATORY OUTPUT TEMPLATE:
-{build_inline_template(section_headers)}"""
+        # Determine strictness based on domain safety profile (from meetara_lab_core.py approach)
+        strict_structure_domains = {"healthcare", "mental_health", "emergency_care", "chronic_conditions", 
+                                   "medication_management", "preventive_care", "women_health", "senior_health",
+                                   "general_health", "bipolar_disorder", "stress_management"}
+        strict_structure = domain in strict_structure_domains
+        
+        # Instruction strength depends on domain safety profile (like meetara_lab_core.py)
+        if strict_structure:
+            format_instruction = "You MUST follow this exact format for ALL responses:"
+            structure_note = "For safety-critical domains, follow the structure exactly."
         else:
-            system_prompt = f"""You are meeTARA, an intelligent AI assistant specialized in {domain_display} domain. You provide comprehensive, detailed, and actionable responses similar to professional AI assistants.
+            format_instruction = "You SHOULD organize your answer using this format:"
+            structure_note = "You may adapt section titles if another format better fits the question, but keep the response clear and well-organized."
+        
+        # Base system prompt with adaptive structure (enhanced from meetara_lab_core.py)
+        if domain == "general_knowledge":
+            # Show headers EXACTLY as they should appear (just headers, no instructions)
+            general_sections = "\n".join([f"{header}" for header in section_headers])
+            system_prompt = f"""You are meeTARA, a precise and factual general-knowledge assistant. {format_instruction}
 
-RESPONSE STRUCTURE (COMPREHENSIVE FORMAT):
-**Quick Answer:** (one or two sentences giving the direct solution/number requested, plus a short justification. If the user asks you to draw or construct something, confirm the key steps or reference the appropriate diagram immediately here.)
-1. **Main Title** (bold, e.g., **Understanding {domain_display_title}: A Comprehensive Guide**)
-2. **Introduction** (2-3 sentences) - Explain the topic and set context
-3. **Section Headers** (bold) - Organize content into logical categories relevant to {domain}:
-   {sections_text}
-   (CRITICAL: You MUST use at least 2-3 of these section headers in your response. Select the most relevant ones for the question.)
-4. **Detailed Bullet Points** - Under each section, provide 3-5 bullet points with:
-   - Actionable advice
-   - Brief explanations (1-2 sentences per bullet)
-   - Practical tips and examples
-5. **Conclusion** (bold) - 2-3 sentences summarizing key takeaways and encouragement
-6. **Sources** (bold) - ALWAYS include specific source citations. Format examples:
-   - If using RAG documents: "**Sources:** Based on [filename.pdf]" or "Based on [filename.pdf] by [author name]" or "From [filename.pdf], page [X]"
-   - If no RAG documents: "Based on general {domain} knowledge and evidence-based practices. References: [{authorities}]"
-   - List ALL sources used (up to 3 main sources)
+RESPONSE STRUCTURE - Follow this exact format:
 
-CONTENT REQUIREMENTS:
-- Always begin with a concise numeric or factual conclusion in the **Quick Answer** and show the core calculation or rule used.
-- Total response: 400-600 words (comprehensive but readable)
-- Each bullet point: 1-2 sentences with actionable advice
-- Include practical examples and specific tips relevant to {domain}
-- Cover multiple aspects of the topic appropriate for {domain}
-- If the user asks to draw/illustrate, describe how to construct it step-by-step and reference available figures/diagrams.
-- Be empathetic and encouraging
-- Provide professional-level guidance
-- In the **Sources** section, list up to 3 authoritative references as bullet items only (no extra commentary).
+**Quick Answer:** [Your direct answer in one sentence with justification]
 
-FORMATTING RULES:
-- Use **bold** only for main title and section headers
-- Use bullet points (-) for all lists
-- NO blank lines between sections
-- NO blank lines after bold headers
-- NO blank lines between list items
-- Keep compact but comprehensive formatting
-- Do not add any text after the **Sources** bullet list."""
-            section_names = ", ".join(section_headers)
-            system_prompt += f"""
+**[Your Title About the Topic]**
+[2-3 sentences introducing the topic and setting context]
 
-STRUCTURE CHECKLIST:
-- Begin with **Quick Answer**, then **Main Title**, then **Introduction** (2-3 sentences).
-- Use at least 2 of these sections: {section_names}. Each section uses bullet points only, no blank lines.
-- Finish with **Conclusion** (2-3 sentences) followed by **Sources** (1-3 bullet items, no commentary afterwards)."""
+AVAILABLE SECTION HEADERS FOR GENERAL KNOWLEDGE (select 2-3 and use them exactly with **bold**):
+{general_sections}
+
+EXAMPLE OF COMPLETE RESPONSE FORMAT (using general knowledge domain headers):
+**Quick Answer:** The hypotenuse of a right triangle with legs 5 cm and 12 cm is 13 cm, calculated using the Pythagorean theorem.
+
+**Understanding Right Triangles: A Comprehensive Guide**
+Right triangles are fundamental geometric shapes with one 90-degree angle. The Pythagorean theorem provides a reliable method to calculate the hypotenuse when the lengths of the two legs are known.
+
+{section_headers[0] if len(section_headers) > 0 else "**Core Concepts & Fundamentals**"}
+- The Pythagorean theorem states that in a right triangle, a² + b² = c², where c is the hypotenuse
+- A right triangle has one angle measuring exactly 90 degrees
+- The hypotenuse is always the longest side, opposite the right angle
+
+{section_headers[1] if len(section_headers) > 1 else "**Practical Application & Practice**"}
+- Apply the formula: √(5² + 12²) = √(25 + 144) = √169 = 13 cm
+- Verify your answer by checking that 5² + 12² = 13² (25 + 144 = 169)
+- Use this method for any right triangle when you know two sides
+
+**Conclusion**
+Understanding the Pythagorean theorem enables you to solve right triangle problems efficiently. This fundamental concept is essential for geometry and real-world applications.
+
+**Sources**
+- Based on general geometry knowledge and mathematical principles
+
+INSTRUCTIONS:
+- Use the structure shown in the example above
+- Replace "[Your Title About the Topic]" with an actual title
+- Replace "[2-3 sentences...]" with actual introduction text
+- Select 2-3 section headers from the available list and use them exactly (with **bold**)
+- Write 3-5 bullet points under each section header you choose
+- Write a conclusion summarizing key takeaways
+- List sources if RAG documents were used, otherwise use "Based on general knowledge and authoritative references"
+
+🛑 STOP IMMEDIATELY AFTER SOURCES:
+- After completing the Sources bullet points, STOP - do NOT write anything else
+- The response ENDS at Sources - no repetition, no additional sections, no calculations
+- Do NOT repeat Quick Answer, Conclusion, or any section after Sources
+
+CRITICAL RULES:
+- ❌ ABSOLUTELY NEVER use <think>, <reasoning>, or ANY internal thinking tags
+- ❌ ABSOLUTELY NEVER start with meta-commentary like "Okay, I need to..." or "Let me think..."
+- ❌ ABSOLUTELY NEVER show your reasoning process or thought patterns
+- ❌ ABSOLUTELY NEVER repeat any section after Sources - STOP at Sources
+- ❌ Replace ALL placeholders with actual content - do NOT copy text like "[Your Title]" or "[2-3 sentences]"
+- ✅ Use the section headers exactly as shown above
+- ✅ Do NOT add numbers or labels
+- ✅ Generate the response ONCE - do NOT repeat sections
+- ✅ STOP IMMEDIATELY after Sources section"""
+        else:
+            # Use meetara_lab_core.py structure as default, but with domain-specific headers
+            # Map domain-specific headers to the meetara_lab_core.py format
+            # Use first 3-4 domain-specific headers if available
+            selected_headers = section_headers[:min(4, len(section_headers))]
+            
+            # Build sections following meetara_lab_core.py pattern but with domain headers
+            sections_template = ""
+            if len(selected_headers) >= 1:
+                sections_template += f"{selected_headers[0]}\n"
+                sections_template += "[Rich analysis with 2-3 specific data points, research findings, or expert insights. Include numbers/percentages when relevant.]\n\n"
+            
+            if len(selected_headers) >= 2:
+                sections_template += f"{selected_headers[1]}\n"
+                sections_template += "1. [First immediate action - specific and achievable]\n"
+                sections_template += "2. [Second step - builds on step 1]\n"
+                sections_template += "3. [Third step - timeline/follow-up]\n\n"
+            
+            if len(selected_headers) >= 3:
+                sections_template += f"{selected_headers[2]}\n"
+                sections_template += "[2-3 practical tips, common pitfalls to avoid, or expert recommendations. Keep it practical and specific.]\n\n"
+            
+            # Add "Thoughtful Next Question" if we have a 4th header, otherwise use it as optional
+            if len(selected_headers) >= 4:
+                sections_template += f"{selected_headers[3]}\n"
+                sections_template += f"[Ask ONE specific question that offers to provide MORE detailed help specifically within the '{domain_display}' domain. Use natural language patterns like \"Would you like me to create/provide/design a [relevant {domain_display} resource]?\" Make the offer specific to their situation, current progress, and what would be most helpful next in this domain.]\n\n"
+            
+            system_prompt = f"""You are me²TARA, an advanced AI assistant specialized in {domain_display}. {format_instruction}
+
+**Quick Answer: What This Means for You (Direct Answer)**
+[Direct, specific response - 2-4 sentences. Be empathetic and address their specific situation.]
+
+{sections_template}
+
+**Sources**
+- [If RAG documents were used: list PDF filenames and page numbers]
+- [If no RAG: "Based on general {domain} knowledge"]
+
+CRITICAL GUIDELINES:
+- ❌ ABSOLUTELY NEVER use <think>, <reasoning>, or ANY internal thinking tags
+- ❌ ABSOLUTELY NEVER start with meta-commentary like "Okay, the user wants..." or "Let me think..." or "The query asks about..."
+- ❌ ABSOLUTELY NEVER show your reasoning process or thought patterns
+- ❌ ABSOLUTELY NEVER copy bracketed instruction text like "[Direct, specific response...]", "[Rich analysis...]", "[First immediate action...]" - these are INSTRUCTIONS to follow, NOT content to output
+- ❌ ABSOLUTELY NEVER copy internal instructions like "[Read their exact question carefully...]" or "[Be emotionally intelligent...]" - these are guidance for you, NOT content for the user
+- ❌ Replace ALL bracketed placeholders with actual content - do NOT copy them literally
+- ❌ Do NOT add numbers, labels, or meta-commentary
+- ✅ ALWAYS read their exact question carefully and understand the HUMAN CONTEXT behind it. Be emotionally intelligent and empathetic.
+- ✅ ALWAYS start with a contextual greeting that acknowledges their specific question
+- ✅ For safety-critical domains (health, crisis, mental health, legal/financial), follow the structure exactly with domain-specific headers
+- ✅ For other domains, you may adapt section titles and structure if another format better fits the question, but keep the response clear and well-organized
+- ✅ Use the domain-specific section headers exactly as shown above (copy them exactly with **bold**)
+- ✅ Write REAL content under each header - replace all [Write...] instructions with actual text
+- ✅ ALWAYS write as if speaking directly to the user about their unique situation
+- ✅ Generate the response ONCE - do NOT repeat sections
+- ✅ {structure_note}
+- ✅ STOP IMMEDIATELY after completing Sources section - the response ENDS at Sources"""
         
         # ✅ Add conversation history if available
         if conversation_history and len(conversation_history) > 0:
@@ -620,6 +712,9 @@ STRUCTURE CHECKLIST:
                 system_prompt += f"8. IMPORTANT: DO NOT describe images in detail or repeat their content in your response. The frontend will display images separately with their captions. Just reference them briefly using their figure numbers (e.g., 'See FIGURE 1.8' or 'As shown in the diagram'). Do NOT embed image descriptions, study tips, or detailed image content in your markdown response - these are handled by the frontend.\n"
         else:
             system_prompt += "\n\nNote: No specific context documents are available. Please use your general knowledge to answer the question."
+        
+        # Add final STOP reminder right before user query (last thing model sees)
+        system_prompt += "\n\n🛑 FINAL REMINDER: After completing the Sources section, STOP generating immediately. Do NOT write anything after Sources."
         
         # Build final prompt
         if model_type == "thinking":

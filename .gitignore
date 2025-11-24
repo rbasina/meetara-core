@@ -459,3 +459,5 @@ dmypy.json
 
 # Cython debug symbols
 cython_debug/ 
+meetara-ui/.next/
+meetara-ui/node_modules/

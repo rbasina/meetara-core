@@ -931,14 +931,14 @@ class MeetaraAgent:
                         'domain': domain
                     }
                     
-                    # Only add to document_metadata if it's actually relevant for citation
-                    if is_relevant_source:
-                        document_metadata.append(source_info)
-                    else:
-                        # Log why source was excluded from citation
+                    # ✅ Always add to document_metadata if RAG retrieved it - semantic search already filtered for relevance
+                    # The keyword matching is too strict and can exclude valid sources that semantic search found
+                    document_metadata.append(source_info)
+                    if not is_relevant_source:
+                        # Log if keyword matching didn't pass, but still include for citation
                         filename = source_info.get('filename', 'Unknown document')
                         page = source_info.get('page', 'unknown')
-                        agent_logger.debug(f"   Excluded source from citation: {filename} page {page} (insufficient relevance to query)")
+                        agent_logger.debug(f"   Including source for citation (semantic match): {filename} page {page} (keyword match threshold not met, but semantically relevant)")
                     
                     # Track relevant pages and filenames for finding adjacent images (always track, even if not cited)
                     if source_info.get('page') is not None:
