@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from app.core.config import settings
 from app.core.logger import setup_logging, api_logger
-from app.api import chat_router, emotion_router, upload_router, image_generation_router
+from app.api import chat_router, emotion_router, upload_router, image_generation_router, vectorstore_router
 
 
 class HealthResponse(BaseModel):
@@ -77,6 +77,7 @@ app.include_router(chat_router, prefix="/api")
 app.include_router(emotion_router, prefix="/api")
 app.include_router(upload_router, prefix="/api")
 app.include_router(image_generation_router, prefix="/api")
+app.include_router(vectorstore_router, prefix="/api")
 
 # Mount images directory for serving images
 images_dir = Path("images")

@@ -166,6 +166,13 @@ class Settings(BaseSettings):
         env="FILTER_RAG_CONTEXT_BY_RELEVANCE"
     )
     
+    # Hugging Face Token (for publishing datasets)
+    hf_token: Optional[str] = Field(
+        default=None,
+        env="HF_TOKEN",
+        description="Hugging Face token for publishing datasets to HF Hub"
+    )
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

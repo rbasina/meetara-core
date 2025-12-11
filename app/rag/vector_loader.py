@@ -22,6 +22,7 @@ from app.rag.domain_retrievers import get_domain_retriever
 from app.core.document_validator import document_validator
 from app.core.config_loader import ConfigLoader
 from app.rag.image_extractor import extract_images_from_pdf, get_images_for_page, filter_relevant_images, extract_captions_from_page_text, parse_figure_caption, parse_table_caption
+from app.rag.vision_analyzer import get_vision_description_for_document
 from app.rag.table_extractor import extract_tables_from_pdf, get_tables_for_page, format_table_reference, TABLE_EXTRACTION_AVAILABLE
 
 # Suppress non-critical PDF rendering warnings (Pat1 color errors are harmless)
@@ -579,11 +580,20 @@ class VectorLoader:
                                 ocr_count = len([img.get('ocr_text') for img in page_images if img.get('ocr_text')])
                                 rag_logger.info(f"   Progress: Page {page_num} - {len(page_images)} image(s), {ocr_count} with OCR, {len(page_captions)} caption(s)")
                             
-                            # Add OCR text to document content for searchability (only if not already present)
-                            ocr_texts = [img.get('ocr_text', '') for img in page_images if img.get('ocr_text')]
-                            if ocr_texts and "[Image OCR Text]" not in doc.page_content:
-                                # Append OCR text to page content so it's searchable
-                                doc.page_content += "\n\n[Image OCR Text]\n" + "\n".join(ocr_texts)
+                            # Add OCR text and Vision AI descriptions to document content for searchability
+                            image_descriptions = []
+                            for img in page_images:
+                                ocr_text = img.get('ocr_text', '')
+                                vision_analysis = img.get('vision_analysis')
+                                
+                                # Get combined description (OCR + Vision AI)
+                                combined_desc = get_vision_description_for_document(ocr_text, vision_analysis)
+                                if combined_desc:
+                                    image_descriptions.append(combined_desc)
+                            
+                            if image_descriptions and "[Image Content]" not in doc.page_content:
+                                # Append combined OCR + Vision AI content so it's searchable
+                                doc.page_content += "\n\n[Image Content]\n" + "\n\n---\n\n".join(image_descriptions)
                             
                             # Add tables to document content for this page (preserves structure as Markdown)
                             if tables_data:
@@ -766,8 +776,17 @@ class VectorLoader:
                             
                             # Add OCR text to content (only if not already present)
                             ocr_texts = [img.get('ocr_text', '') for img in page_images if img.get('ocr_text')]
-                            if ocr_texts and "[Image OCR Text]" not in doc.page_content:
-                                doc.page_content += "\n\n[Image OCR Text]\n" + "\n".join(ocr_texts)
+                            # Add OCR text and Vision AI descriptions to document content
+                            image_descriptions = []
+                            for img in page_images:
+                                ocr_text = img.get('ocr_text', '')
+                                vision_analysis = img.get('vision_analysis')
+                                combined_desc = get_vision_description_for_document(ocr_text, vision_analysis)
+                                if combined_desc:
+                                    image_descriptions.append(combined_desc)
+                            
+                            if image_descriptions and "[Image Content]" not in doc.page_content:
+                                doc.page_content += "\n\n[Image Content]\n" + "\n\n---\n\n".join(image_descriptions)
                             
                             # Add tables to document content for this page (preserves structure as Markdown)
                             if tables_data:

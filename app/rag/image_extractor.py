@@ -19,6 +19,7 @@ except ImportError:
     IMAGE_EXTRACTION_AVAILABLE = False
 
 from app.core.logger import rag_logger
+from app.rag.vision_analyzer import analyze_image_vision, should_use_vision_ai, get_vision_description_for_document
 
 # Memory management constants
 MAX_IMAGE_DIMENSION = 5000  # Maximum width or height in pixels (prevents huge images)
@@ -552,11 +553,23 @@ def _extract_single_image(
             
             img.save(output_path)
             
+            # Perform Vision AI analysis if beneficial (complements OCR)
+            vision_analysis = None
+            if should_use_vision_ai(ocr_text, image_size):
+                try:
+                    vision_analysis = analyze_image_vision(output_path, ocr_text)
+                    if vision_analysis and not silent:
+                        rag_logger.debug(f"Vision AI analysis for page {page_num}: {vision_analysis.get('image_type', 'unknown')} - {vision_analysis.get('description', '')[:50]}...")
+                except Exception as e:
+                    rag_logger.debug(f"Vision AI analysis failed for page {page_num}: {e}")
+                    vision_analysis = None
+            
             return {
                 'page': page_num,
                 'image_id': image_id,
                 'image_path': str(output_path),
                 'ocr_text': ocr_text,
+                'vision_analysis': vision_analysis,  # Add vision analysis results
                 'image_size': image_size,
                 'format': 'PNG'
             }

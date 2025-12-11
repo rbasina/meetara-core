@@ -690,6 +690,87 @@ API_PORT=8001
 
 ---
 
+## 📊 Vectorstore Operations
+
+### Publishing to Hugging Face Hub
+
+**Quick publish using PowerShell script:**
+```powershell
+.\scripts\publish_vectorstore.ps1 -Domain "general_health" -RepoId "meetara-lab/vectorstore-general_health"
+```
+
+**Using API:**
+```bash
+curl -X POST "http://localhost:8000/api/vectorstore/publish" \
+  -H "Authorization: Bearer YOUR_HF_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "domain": "general_health",
+    "repo_id": "meetara-lab/vectorstore-general_health"
+  }'
+```
+
+See [HF Publishing Guide](docs/HF_PUBLISHING_GUIDE.md) for detailed instructions.
+
+### Loading from Hugging Face Hub
+
+**Python:**
+```python
+from app.rag.hf_publisher import load_vectorstore_from_hub
+
+vectorstore = load_vectorstore_from_hub(
+    repo_id="meetara-lab/vectorstore-general_health",
+    domain="general_health"
+)
+```
+
+**API:**
+```bash
+curl -X POST "http://localhost:8000/api/vectorstore/load-from-hub" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_id": "meetara-lab/vectorstore-general_health",
+    "domain": "general_health"
+  }'
+```
+
+### Validation
+
+**Validate vectorstore quality:**
+```bash
+python scripts/validate_vectorstore.py general_health
+```
+
+**Check size and statistics:**
+```bash
+# Single domain
+python scripts/check_size.py general_health
+
+# All domains
+python scripts/check_size.py all
+```
+
+### Cleanup Operations
+
+**Clear domain (remove all documents):**
+```bash
+python scripts/clear_domain.py clear general_health
+```
+
+**VACUUM database (reclaim space, reduce bloat):**
+```bash
+python scripts/vacuum_domain.py general_health
+```
+
+**Complete domain deletion:**
+```bash
+python scripts/clear_domain.py delete general_health --delete-db
+```
+
+See [Vectorstore Validation Guide](docs/VECTORSTORE_VALIDATION.md) and [Data Management Guide](docs/DATA_MANAGEMENT.md) for more details.
+
+---
+
 ## 🔒 Security
 
 ### Security Features
@@ -722,7 +803,11 @@ API_PORT=8001
 ### Scripts
 
 - `scripts/batch_uploader.py` - Batch document upload utility
-- `scripts/check_db_size.py` - Database size checker
+- `scripts/check_size.py` - Vectorstore size and statistics checker
+- `scripts/validate_vectorstore.py` - Vectorstore validation tool
+- `scripts/clear_domain.py` - Clear or delete domain data
+- `scripts/vacuum_domain.py` - Optimize database (reclaim space)
+- `scripts/publish_vectorstore.ps1` - Publish to Hugging Face Hub
 - `scripts/setup_environment.py` - Automated environment setup
 
 ### Documentation
@@ -765,6 +850,8 @@ MIT License - see LICENSE file for details
 - **[Architecture Documentation](docs/ARCHITECTURE.md)** - Complete system architecture with flow diagrams
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute to the project
 - **[Data Management Guide](docs/DATA_MANAGEMENT.md)** - Managing downloads, images, and data directories
+- **[HF Publishing Guide](docs/HF_PUBLISHING_GUIDE.md)** - Publishing vectorstores to Hugging Face Hub
+- **[Vectorstore Validation Guide](docs/VECTORSTORE_VALIDATION.md)** - Validating vectorstore quality
 - **[Git Setup Guide](docs/GIT_SETUP.md)** - Setting up Git LFS for compressed data files
 - **API Docs**: http://localhost:8000/docs (Swagger UI)
 
