@@ -44,9 +44,11 @@ class ConfigLoader:
             if self.domain_keywords:
                 logger.info("Domain keywords loaded successfully")
             
-            # Model configuration is embedded in domain_config.yaml
-            # No need for separate model_config.yaml
-            self.model_config = {}
+            # ✅ Load model configuration from model_config.yaml
+            model_config_path = self.config_dir / "model_config.yaml"
+            self.model_config = load_yaml_file(model_config_path, default={})
+            if self.model_config:
+                logger.info(f"Model configuration loaded: {len(self.model_config.get('models', {}))} models available")
                 
         except Exception as e:
             logger.error(f"Error loading configurations: {e}")
@@ -351,6 +353,140 @@ class ConfigLoader:
         """Reload all configuration files."""
         logger.info("Reloading configurations...")
         self._load_configurations()
+    
+    # ============================================
+    # MODEL CONFIGURATION METHODS
+    # ============================================
+    
+    def get_available_models(self) -> Dict[str, Any]:
+        """Get all available models with their configurations.
+        
+        Returns:
+            Dictionary of model configurations
+        """
+        if not self.model_config:
+            return {}
+        return self.model_config.get('models', {})
+    
+    def get_model_config(self, model_id: str) -> Dict[str, Any]:
+        """Get configuration for a specific model.
+        
+        Args:
+            model_id: Model identifier (e.g., 'meetara-1.7b')
+            
+        Returns:
+            Model configuration dictionary
+        """
+        models = self.get_available_models()
+        return models.get(model_id, {})
+    
+    def get_default_model(self) -> str:
+        """Get the default model ID.
+        
+        Returns:
+            Default model identifier
+        """
+        models = self.get_available_models()
+        for model_id, config in models.items():
+            if config.get('default', False):
+                return model_id
+        return "meetara-1.7b"  # Fallback
+    
+    def get_model_for_domain(self, domain: str) -> str:
+        """Get recommended model for a specific domain.
+        
+        Uses the tier mapping from model_config.yaml to select the best model.
+        
+        Args:
+            domain: Domain name
+            
+        Returns:
+            Model identifier
+        """
+        if not self.model_config:
+            return self.get_default_model()
+        
+        # Get domain tier
+        domain_tier = self.get_domain_tier(domain)
+        
+        # Get tier mapping from model config
+        selection_strategy = self.model_config.get('selection_strategy', {})
+        
+        if not selection_strategy.get('auto_select', True):
+            return selection_strategy.get('default_model', self.get_default_model())
+        
+        tier_mapping = selection_strategy.get('tier_mapping', {})
+        
+        # Map tier to model
+        if domain_tier in tier_mapping:
+            return tier_mapping[domain_tier]
+        
+        return selection_strategy.get('default_model', self.get_default_model())
+    
+    def get_model_hf_info(self, model_id: str) -> Dict[str, str]:
+        """Get Hugging Face repository info for a model.
+        
+        Args:
+            model_id: Model identifier
+            
+        Returns:
+            Dictionary with 'repo_id' and 'filename'
+        """
+        model_config = self.get_model_config(model_id)
+        return {
+            'repo_id': model_config.get('hf_repo_id', ''),
+            'filename': model_config.get('filename', '')
+        }
+    
+    def get_generation_settings(self, model_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get generation settings for a model.
+        
+        Args:
+            model_id: Model identifier (uses defaults if not specified)
+            
+        Returns:
+            Generation settings dictionary
+        """
+        defaults = self.model_config.get('generation_defaults', {
+            'temperature': 0.7,
+            'top_p': 0.9,
+            'top_k': 50,
+            'max_tokens': 640
+        })
+        
+        if model_id:
+            model_config = self.get_model_config(model_id)
+            # Model-specific settings override defaults
+            if 'generation' in model_config:
+                defaults.update(model_config['generation'])
+        
+        return defaults
+    
+    def get_models_for_ui(self) -> List[Dict[str, Any]]:
+        """Get model information formatted for UI display.
+        
+        Returns:
+            List of model info dictionaries for UI
+        """
+        models = self.get_available_models()
+        ui_models = []
+        
+        for model_id, config in models.items():
+            ui_models.append({
+                'id': model_id,
+                'name': config.get('display_name', model_id),
+                'description': config.get('description', ''),
+                'size': config.get('size_gb', 0),
+                'parameters': config.get('parameters', ''),
+                'tier': config.get('tier', 'balanced'),
+                'default': config.get('default', False),
+                'recommended_for': config.get('recommended_for', [])
+            })
+        
+        # Sort by size (smallest first)
+        ui_models.sort(key=lambda x: x['size'])
+        
+        return ui_models
 
 
 # Global configuration loader instance

@@ -22,6 +22,7 @@ class ChatRequest(BaseModel):
     emotion: Optional[str] = Field(None, description="Detected emotion")
     session_id: Optional[str] = Field(None, description="Session ID for conversation history")
     context: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional context")
+    model: Optional[str] = Field(None, description="Model ID to use (e.g., 'meetara-1.7b', 'meetara-4b-thinking')")
 
 
 class ChatResponse(BaseModel):
@@ -98,6 +99,7 @@ async def chat_endpoint(
                 "lang": request.lang,
                 "emotion": request.emotion,
                 "topic": sanitized_topic,  # ✅ Using sanitized topic
+                "model": request.model,  # ✅ Model selection
                 # Don't force topic - let system auto-detect
                 "auto_detect_domain": True,
                 **request.context  # ✅ Merge any additional context
@@ -283,6 +285,50 @@ async def get_categorized_domains():
         
     except Exception as e:
         api_logger.error(f"Error getting categorized domains: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/domains/keywords")
+async def get_domain_keywords():
+    """Get domain keywords for client-side domain detection.
+    
+    Returns keywords from domain_keywords.yaml config file.
+    This allows the frontend to detect domains without hardcoding.
+    """
+    try:
+        from app.core.config_loader import config_loader
+        
+        # Get domain keywords from config
+        domain_keywords = config_loader.domain_keywords
+        
+        if not domain_keywords:
+            return {
+                "keywords": {},
+                "stop_words": [],
+                "generic_terms": [],
+                "message": "Domain keywords not loaded"
+            }
+        
+        # Extract keywords for each domain
+        keywords_by_domain = {}
+        domains_config = domain_keywords.get('domains', {})
+        
+        for domain_name, domain_data in domains_config.items():
+            if isinstance(domain_data, dict) and 'keywords' in domain_data:
+                # Get keywords and limit to most important ones for frontend
+                all_keywords = domain_data['keywords']
+                # Take first 30 keywords (most important ones)
+                keywords_by_domain[domain_name] = all_keywords[:30] if len(all_keywords) > 30 else all_keywords
+        
+        return {
+            "keywords": keywords_by_domain,
+            "stop_words": domain_keywords.get('stop_words', []),
+            "generic_terms": domain_keywords.get('generic_terms', []),
+            "total_domains": len(keywords_by_domain)
+        }
+        
+    except Exception as e:
+        api_logger.error(f"Error getting domain keywords: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

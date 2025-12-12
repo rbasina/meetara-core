@@ -1,12 +1,27 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+import { Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 
-const inter = Inter({ subsets: ['latin'] })
+const jakarta = Plus_Jakarta_Sans({ 
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap'
+})
+
+const jetbrainsMono = JetBrains_Mono({
+  subsets: ['latin'],
+  variable: '--font-mono',
+  display: 'swap'
+})
 
 export const metadata: Metadata = {
-  title: 'Meetara - AI Assistant with RAG',
-  description: 'Intelligent AI assistant with domain-specific knowledge retrieval',
+  title: 'me²TARA - Knowledge-Based AI Assistant',
+  description: 'Intelligent AI assistant with domain-specific knowledge retrieval, emotion-aware responses, and multi-language support.',
+  keywords: ['AI', 'RAG', 'Knowledge Assistant', 'LLM', 'Document Analysis'],
+  authors: [{ name: 'Meetara Lab' }],
+  icons: {
+    icon: '/favicon.ico',
+  },
 }
 
 export default function RootLayout({
@@ -15,8 +30,24 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>{children}</body>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                const theme = localStorage.getItem('meetara-theme') || 'system';
+                const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+                const resolvedTheme = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
+                document.documentElement.classList.add(resolvedTheme);
+              } catch (e) {}
+            `,
+          }}
+        />
+      </head>
+      <body className={`${jakarta.variable} ${jetbrainsMono.variable} font-sans antialiased`}>
+        {children}
+      </body>
     </html>
   )
 }

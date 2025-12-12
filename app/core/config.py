@@ -51,11 +51,27 @@ class Settings(BaseSettings):
     
     # Custom Meetara GGUF Models
     # Note: Meetara fine-tuned models are quantized to GGUF format for efficient inference
-    # Original safetensors models can be found in the meetara-lab repository
+    # Available models: https://huggingface.co/meetara-lab/models
+    # - meetara-qwen3-1.7b-gguf (1.2 GB) - Fast, general purpose
+    # - meetara-qwen3-4b-instruct-gguf (2.8 GB) - Instruction following, coding
+    # - meetara-qwen3-4b-thinking-gguf (2.8 GB) - Deep reasoning, safety-critical
+    # - meetara-qwen3-8b-gguf (5.5 GB) - Most capable
+    
+    # Default model to use (can be changed at runtime via API)
+    # Options: meetara-1.7b, meetara-4b-instruct, meetara-4b-thinking, meetara-8b
+    default_model: str = Field(
+        default="meetara-1.7b",
+        env="DEFAULT_MODEL"
+    )
+    
+    # Auto-select model based on domain tier (if True, ignores default_model for domain queries)
+    auto_select_model: bool = Field(
+        default=True,
+        env="AUTO_SELECT_MODEL"
+    )
     
     # Hugging Face Model Configuration (for automatic download)
-    # Set to HF model ID (e.g., "meetara-lab/meetara-qwen3-1.7b-gguf") to download from HF
-    # Leave empty/None to use local models only
+    # These are loaded from model_config.yaml, but can be overridden via env vars
     meetara_hf_model_id: Optional[str] = Field(
         default="meetara-lab/meetara-qwen3-1.7b-gguf",
         env="MEETARA_HF_MODEL_ID"
@@ -66,10 +82,8 @@ class Settings(BaseSettings):
     )
     
     # Local Model Paths (fallback if HF model ID not set)
-    # Default: Use relative path in project directory
-    # Users can override with MEETARA_MODELS_PATH environment variable
     meetara_models_path: Path = Field(
-        default=Path("models/gguf"),  # Relative path in project
+        default=Path("models/gguf"),
         env="MEETARA_MODELS_PATH"
     )
     meetara_instruct_model: str = Field(
