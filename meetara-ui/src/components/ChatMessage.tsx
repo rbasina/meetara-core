@@ -68,7 +68,15 @@ export default function ChatMessage({
   const getConfidenceClass = (confidence: number) => {
     if (confidence >= 0.8) return 'badge-success'
     if (confidence >= 0.6) return 'badge-warning'
-    return 'badge-destructive'
+    if (confidence >= 0.4) return 'badge-secondary'
+    return 'badge-muted'
+  }
+
+  const getConfidenceLabel = (confidence: number) => {
+    if (confidence >= 0.8) return 'High match'
+    if (confidence >= 0.6) return 'Good match'
+    if (confidence >= 0.4) return 'Partial match'
+    return 'General knowledge'
   }
 
   if (isUser) {
@@ -224,10 +232,13 @@ export default function ChatMessage({
                 </div>
               )}
               
-              {/* Confidence */}
+              {/* Confidence - shows how well query matched knowledge base */}
               {message.confidence !== undefined && (
-                <div className={cn("badge", getConfidenceClass(message.confidence))}>
-                  {(message.confidence * 100).toFixed(0)}% confidence
+                <div 
+                  className={cn("badge", getConfidenceClass(message.confidence))}
+                  title={`Document relevance: ${(message.confidence * 100).toFixed(0)}% - ${getConfidenceLabel(message.confidence)}`}
+                >
+                  {getConfidenceLabel(message.confidence)}
                 </div>
               )}
               

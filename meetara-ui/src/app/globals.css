@@ -536,6 +536,10 @@
   @apply bg-destructive/10 text-destructive;
 }
 
+.badge-muted {
+  @apply bg-muted text-muted-foreground;
+}
+
 /* Card hover effect */
 .card-hover {
   @apply transition-all duration-300 hover:shadow-lg hover:border-primary/50;

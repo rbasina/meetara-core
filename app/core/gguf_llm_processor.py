@@ -239,6 +239,146 @@ class MeetaraGGUFProcessor:
             # Extract response text
             response_text = response["choices"][0]["text"].strip()
             
+            # ============================================================
+            # CRITICAL: REMOVE MODEL THINKING/REASONING (Must happen FIRST)
+            # ============================================================
+            import re
+            
+            # Remove XML-style thinking tags
+            response_text = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL)
+            response_text = re.sub(r'<reasoning>.*?</reasoning>', '', response_text, flags=re.DOTALL)
+            response_text = re.sub(r'<thinking>.*?</thinking>', '', response_text, flags=re.DOTALL)
+            
+            # AGGRESSIVE: Remove conversational reasoning at start
+            # Keep removing thinking patterns until we get clean content
+            for _ in range(10):  # Safety limit
+                original_text = response_text
+                
+                # Pattern 1: "Okay, [the user/I/let me/we]..."
+                response_text = re.sub(
+                    r'^Okay,?\s+(?:the user|I|let me|we|so|now|first|here).*?(?:\.|!|\?)\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Pattern 2: "The user is asking/wants/needs..."
+                response_text = re.sub(
+                    r'^The user\s+(?:is asking|wants|needs|seems|appears|might|could).*?(?:\.|!|\?)\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Pattern 3: "Let me [verb]..." or "I need to [verb]..."
+                response_text = re.sub(
+                    r'^(?:Let me|I need to|I should|I\'ll|I will|First,? I\'ll|First,? let me).*?(?:\.|!|\?)\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Pattern 4: "For the [section], ..." - planning language
+                response_text = re.sub(
+                    r'^For the\s+(?:core concepts|first|second|third|next|effective|practical).*?(?:\.|!|\?)\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Pattern 5: "Next, the [section]..." - transition planning
+                response_text = re.sub(
+                    r'^Next,?\s+(?:the|I\'ll|let me|we).*?(?:\.|!|\?)\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Pattern 6: Generic thinking starters
+                response_text = re.sub(
+                    r'^(?:So,?\s+|Now,?\s+|Well,?\s+|Hmm,?\s+|Alright,?\s+)(?:the|I|let|we|first).*?(?:\.|!|\?)\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # If no changes were made, we're done
+                if response_text == original_text:
+                    break
+            
+            # Remove multi-paragraph thinking blocks
+            paragraphs = response_text.split('\n\n')
+            clean_paragraphs = []
+            found_content = False
+            
+            thinking_indicators = [
+                'the user', 'i need to', 'i should', 'let me', "i'll", 'first step',
+                'second step', 'third step', 'for the core', 'for the effective',
+                'should include', 'should cover', 'should mention', 'might be',
+                'could be', 'the query', 'this question', 'assessment and tracking'
+            ]
+            
+            for para in paragraphs:
+                para_lower = para.lower().strip()
+                if not para_lower:
+                    continue
+                
+                is_thinking = False
+                for indicator in thinking_indicators:
+                    if para_lower.startswith(indicator) or f', {indicator}' in para_lower[:100]:
+                        is_thinking = True
+                        break
+                
+                if para_lower.startswith(('okay', 'so ', 'now ', 'next', 'also', 'for the', 'the user')):
+                    is_thinking = True
+                
+                content_markers = ['**quick answer', '**', '# ', '## ', '- ', '• ', '1.', '2.', '3.']
+                for marker in content_markers:
+                    if marker in para_lower:
+                        found_content = True
+                        break
+                
+                if found_content or not is_thinking:
+                    clean_paragraphs.append(para)
+                    found_content = True
+            
+            if clean_paragraphs:
+                response_text = '\n\n'.join(clean_paragraphs)
+            
+            # ============================================================
+            # REMOVE PLACEHOLDER BRACKETS AND TEMPLATE TEXT
+            # ============================================================
+            # Remove any text in square brackets that looks like template placeholders
+            placeholder_patterns = [
+                r'\[Your Title About the Topic\]',
+                r'\[2-3 sentences[^\]]*\]',
+                r'\[Direct[^\]]*\]',
+                r'\[Rich analysis[^\]]*\]',
+                r'\[First immediate action[^\]]*\]',
+                r'\[Second step[^\]]*\]',
+                r'\[Third step[^\]]*\]',
+                r'\[Write[^\]]*\]',
+                r'\[Read[^\]]*\]',
+                r'\[Ask[^\]]*\]',
+                r'\[If RAG[^\]]*\]',
+                r'\[If no RAG[^\]]*\]',
+                r'\[Your[^\]]*\]',
+                r'\[key point[^\]]*\]',
+                r'\[summary[^\]]*\]',
+                r'\[reference[^\]]*\]',
+                r'\[direct answer[^\]]*\]',
+                r'\[specific[^\]]*\]',
+                r'\[actionable[^\]]*\]',
+                r'\[practical[^\]]*\]',
+                r'\[relevant[^\]]*\]',
+                r'\<direct answer\>',
+                r'\<summary\>',
+                r'\<reference\>',
+            ]
+            for pattern in placeholder_patterns:
+                response_text = re.sub(pattern, '', response_text, flags=re.IGNORECASE)
+            
+            # Remove generic placeholder brackets like [text here] that weren't replaced
+            # But preserve legitimate brackets like [1], [2], [a], [b] for citations
+            response_text = re.sub(r'\[[^\]]{10,}\]', '', response_text)  # Remove brackets with 10+ chars inside
+            
+            # Remove empty bullet points that result from placeholder removal
+            response_text = re.sub(r'^-\s*$', '', response_text, flags=re.MULTILINE)
+            response_text = re.sub(r'^\d+\.\s*$', '', response_text, flags=re.MULTILINE)
+            
+            # Normalize multiple blank lines
+            response_text = re.sub(r'\n{3,}', '\n\n', response_text)
+            
+            agent_logger.info(f"🧹 Post-processed response: removed thinking patterns and placeholders")
+            
             # ✅ Minimal safety net: Only remove obvious duplicates (prevention should handle most cases)
             # Find first Sources section - response should end there
             first_sources_idx = response_text.find("**Sources**")

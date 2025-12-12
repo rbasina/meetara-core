@@ -162,10 +162,10 @@ export default function Sidebar({
                     isExpanded && "bg-primary/5"
                   )}
                 >
-                  <div className="flex items-center gap-3">
-                    <span className="text-xl">{getCategoryIcon(categoryName)}</span>
-                    <div className="flex flex-col items-start">
-                      <span className="font-medium text-sm">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <span className="text-xl flex-shrink-0">{getCategoryIcon(categoryName)}</span>
+                    <div className="flex flex-col items-start min-w-0 flex-1">
+                      <span className="font-medium text-sm truncate w-full text-left">
                         {category.display_name}
                       </span>
                       <span className="text-xs text-muted-foreground">
@@ -173,9 +173,9 @@ export default function Sidebar({
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     <span className={cn(
-                      "badge text-[10px]",
+                      "badge text-[10px] whitespace-nowrap",
                       getTierClass(category.tier)
                     )}>
                       {category.tier.replace('_', ' ')}
