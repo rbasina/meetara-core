@@ -227,6 +227,12 @@ docs/*.md
 !docs/QUICK_START.md
 !docs/CONTRIBUTING.md
 !docs/ARCHITECTURE.md
+!docs/MEETARA_CORE.md
+!docs/DATA_MANAGEMENT.md
+!docs/HF_PUBLISHING_GUIDE.md
+!docs/VECTORSTORE_VALIDATION.md
+!docs/GIT_SETUP.md
+!docs/VISION_AI_INTEGRATION.md
 !README.md
 
 # IDE files
