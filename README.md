@@ -187,6 +187,7 @@ meetara-core/
 ├── app/
 │   ├── api/                    # FastAPI route handlers
 │   │   ├── chat.py            # Chat endpoint with RAG
+│   │   ├── models.py          # Model selection API
 │   │   ├── emotion.py         # Emotion detection APIs
 │   │   ├── upload.py          # Document upload & management
 │   │   └── image_generation.py # Image generation API
@@ -218,6 +219,7 @@ meetara-core/
 ├── config/                    # Configuration files
 │   ├── domain_config.yaml     # Domain definitions & settings
 │   ├── domain_keywords.yaml   # Domain keywords for detection
+│   ├── model_config.yaml      # LLM model configurations
 │   └── tier_config.yaml       # Domain tier configurations
 ├── scripts/                   # Utility scripts
 │   ├── batch_uploader.py      # Batch document upload
@@ -406,6 +408,7 @@ Content-Type: application/json
 {
   "query": "How can I improve my sleep quality?",
   "session_id": "conv-abc123",  # Reuse same ID for conversation
+  "model": "meetara-qwen3-1.7b-gguf",  # Optional: specify model
   "context": {
     "domain": "general_health",  # Optional: specify domain
     "lang": "en",
@@ -433,6 +436,31 @@ Content-Type: application/json
 #### Get Available Domains
 ```bash
 GET /api/chat/domains/categorized
+```
+
+#### Get Domain Keywords (for client-side detection)
+```bash
+GET /api/chat/domains/keywords
+```
+
+#### Get Available Models
+```bash
+GET /api/models/
+```
+
+**Response:**
+```json
+{
+  "default_model": "meetara-qwen3-1.7b-gguf",
+  "available_models": [
+    {
+      "name": "meetara-qwen3-1.7b-gguf",
+      "description": "Small, fast instruction-tuned model",
+      "is_loaded": true,
+      "is_available_locally": true
+    }
+  ]
+}
 ```
 
 #### Document Upload
@@ -846,6 +874,7 @@ MIT License - see LICENSE file for details
 
 ## 📚 Documentation
 
+- **[Meetara Core Vision](docs/MEETARA_CORE.md)** - Philosophy, purpose, and core principles
 - **[Quick Start Guide](docs/QUICK_START.md)** - Get started in 5 minutes
 - **[Architecture Documentation](docs/ARCHITECTURE.md)** - Complete system architecture with flow diagrams
 - **[Contributing Guide](docs/CONTRIBUTING.md)** - How to contribute to the project
@@ -880,6 +909,6 @@ MIT License - see LICENSE file for details
 
 **Meetara Core** - Empowering AI assistants with emotion-aware intelligence.
 
-**Version**: 1.0.0  
-**Last Updated**: November 2025  
+**Version**: 1.1.0  
+**Last Updated**: December 2025  
 **Python**: 3.12+
