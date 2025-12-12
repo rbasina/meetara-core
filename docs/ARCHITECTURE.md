@@ -502,6 +502,47 @@ MEETARA_INSTRUCT_MODEL=meetara-qwen3-1.7b-Q4_K_M.gguf
 - **Model Size**: ~1.2 GB (Q4_K_M quantization)
 - **Memory**: ~2-3 GB RAM per model instance
 
+### Response Post-Processing
+
+**Location**: `app/core/gguf_llm_processor.py` → `_post_process_response()`
+
+The LLM response goes through post-processing to ensure clean, user-friendly output:
+
+1. **Remove Internal Thinking**: Strips `<think>`, `<reasoning>`, `<thinking>` tags
+2. **Remove Meta-Commentary**: Filters "Okay, the user is asking...", "Let me think..." patterns
+3. **Remove Placeholders**: Cleans `[Your Title]`, `[2-3 sentences...]` template text
+4. **Normalize Formatting**: Ensures consistent markdown structure
+5. **Validate Structure**: Ensures proper section headers and Sources section
+
+This ensures users see clean, professional responses without model "thinking out loud".
+
+### Model Selection API
+
+**Endpoint**: `GET /api/models/`
+
+Returns all configured models with their status:
+```json
+{
+  "default_model": "meetara-qwen3-1.7b-gguf",
+  "available_models": [
+    {
+      "name": "meetara-qwen3-1.7b-gguf",
+      "description": "Small, fast instruction-tuned model",
+      "is_loaded": true,
+      "is_available_locally": true
+    },
+    {
+      "name": "meetara-qwen3-4b-instruct-gguf",
+      "description": "Medium instruction-tuned model",
+      "is_loaded": false,
+      "is_available_locally": true
+    }
+  ]
+}
+```
+
+**Configuration**: Models are defined in `config/model_config.yaml`
+
 ---
 
 ## 💾 Storage Architecture
@@ -568,9 +609,13 @@ images/
 ### Endpoints
 
 **Chat**:
-- `POST /api/chat/` - Main chat endpoint with RAG
+- `POST /api/chat/` - Main chat endpoint with RAG (accepts optional `model` parameter)
 - `GET /api/chat/domains` - List available domains
 - `GET /api/chat/domains/categorized` - Domains by category
+- `GET /api/chat/domains/keywords` - Domain keywords for client-side detection
+
+**Models** (NEW):
+- `GET /api/models/` - List all available LLM models with status
 
 **Upload**:
 - `POST /api/upload/doc` - Upload single document
@@ -596,6 +641,7 @@ images/
 {
   "query": str,
   "session_id": str,  # For conversation memory
+  "model": Optional[str],  # Specific model to use (e.g., "meetara-qwen3-4b-instruct-gguf")
   "context": {
     "domain": Optional[str],
     "lang": Optional[str],
