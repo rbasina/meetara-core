@@ -72,4 +72,9 @@ api_logger = get_logger("api")
 agent_logger = get_logger("agent")
 rag_logger = get_logger("rag")
 emotion_logger = get_logger("emotion")
-security_logger = get_logger("security") 
+security_logger = get_logger("security")
+
+
+def is_verbose() -> bool:
+    """Check if verbose logging is enabled (for detailed debug output)."""
+    return settings.verbose_logging

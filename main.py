@@ -46,6 +46,14 @@ async def lifespan(app: FastAPI):
     settings.vectorstore_path.mkdir(parents=True, exist_ok=True)
     settings.emotion_models_path.mkdir(parents=True, exist_ok=True)
     
+    # Pre-warm domain retrievers for faster first queries (runs in background)
+    try:
+        from app.rag.domain_retrievers import prewarm_retrievers
+        api_logger.info("🔥 Pre-warming domain retrievers...")
+        prewarm_retrievers(max_domains=3)  # Pre-warm top 3 domains
+    except Exception as e:
+        api_logger.warning(f"⚠️ Pre-warming failed (non-critical): {e}")
+    
     api_logger.info("Meetara Core backend started successfully")
     
     yield

@@ -765,4 +765,62 @@ def delete_domain(domain: str) -> bool:
         
     except Exception as e:
         rag_logger.error(f"Failed to delete domain {domain}: {e}")
-        return False 
+        return False
+
+
+def prewarm_retrievers(domains: Optional[List[str]] = None, max_domains: int = 5) -> Dict[str, bool]:
+    """
+    Pre-warm domain retrievers for faster first queries.
+    
+    This loads the embedding model and initializes vector stores for specified domains
+    in advance, reducing cold-start latency for the first user query.
+    
+    Args:
+        domains: List of domain names to pre-warm. If None, uses most common domains.
+        max_domains: Maximum number of domains to pre-warm (to limit memory usage).
+    
+    Returns:
+        Dict mapping domain name to success status.
+    """
+    results = {}
+    
+    # If no domains specified, use the most common ones
+    if domains is None:
+        available = list_available_domains()
+        # Prioritize commonly used domains
+        priority_domains = ['general_health', 'mental_health', 'education', 'general']
+        domains = [d for d in priority_domains if d in available]
+        # Add remaining domains up to max
+        remaining = [d for d in available if d not in domains]
+        domains.extend(remaining[:max_domains - len(domains)])
+    
+    domains = domains[:max_domains]
+    
+    if not domains:
+        rag_logger.info("🔥 No domains to pre-warm")
+        return results
+    
+    rag_logger.info(f"🔥 Pre-warming {len(domains)} domain retrievers: {domains}")
+    
+    # First, ensure embedding model is loaded (shared across all domains)
+    try:
+        _get_shared_embeddings()
+        rag_logger.info("✅ Embedding model pre-warmed")
+    except Exception as e:
+        rag_logger.error(f"❌ Failed to pre-warm embedding model: {e}")
+        return {d: False for d in domains}
+    
+    # Pre-warm each domain retriever
+    for domain in domains:
+        try:
+            get_domain_retriever(domain)
+            results[domain] = True
+            rag_logger.info(f"✅ Pre-warmed retriever for: {domain}")
+        except Exception as e:
+            results[domain] = False
+            rag_logger.warning(f"⚠️ Failed to pre-warm {domain}: {e}")
+    
+    success_count = sum(1 for v in results.values() if v)
+    rag_logger.info(f"🔥 Pre-warming complete: {success_count}/{len(domains)} domains ready")
+    
+    return results

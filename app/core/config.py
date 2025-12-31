@@ -155,6 +155,7 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = Field(default="INFO", env="LOG_LEVEL")
     log_file: Optional[Path] = Field(default=None, env="LOG_FILE")
+    verbose_logging: bool = Field(default=True, env="VERBOSE_LOGGING")  # Set to False in production
     
     # File Upload
     max_file_size: int = Field(default=150 * 1024 * 1024, env="MAX_FILE_SIZE")  # 150MB for large textbook PDFs
