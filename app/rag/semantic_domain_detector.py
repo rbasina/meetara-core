@@ -236,7 +236,8 @@ class SemanticDomainDetector:
         query: str,
         keyword_hint_domains: Optional[List[str]] = None,
         semantic_weight: float = 0.7,
-        keyword_weight: float = 0.3
+        keyword_weight: float = 0.3,
+        use_pure_semantic: bool = True  # NEW: Default to pure semantic for better accuracy
     ) -> Dict[str, Any]:
         """
         Hybrid approach: Use keyword hints to narrow domains, then semantic search.
@@ -250,11 +251,34 @@ class SemanticDomainDetector:
             keyword_hint_domains: Optional list of domains to check first (from keyword matching)
             semantic_weight: Weight for semantic scores (default: 0.7)
             keyword_weight: Weight for keyword scores (default: 0.3)
+            use_pure_semantic: If True, always search ALL domains semantically (more accurate but slower)
             
         Returns:
             Same structure as detect_domain_and_retrieve
         """
-        # If keyword hints available, use them to narrow search (FAST)
+        # PURE SEMANTIC MODE: Search ALL domains with vectorstores
+        # This is more accurate than keyword pre-filtering, especially for queries
+        # where keywords might match wrong domains (e.g., "software development" → digital_literacy)
+        if use_pure_semantic:
+            agent_logger.info("🔍 Pure semantic detection: Searching ALL domains for best match")
+            result = self.detect_domain_and_retrieve(
+                query=query,
+                top_k_per_domain=3,
+                max_domains_to_check=None,  # Search ALL domains
+                min_similarity_score=0.2,
+            )
+            
+            if result.get("documents") and len(result["documents"]) > 0:
+                agent_logger.info(
+                    f"✅ Pure semantic search found {len(result['documents'])} docs in domain: {result['detected_domain']} "
+                    f"(confidence: {result.get('confidence', 0):.3f})"
+                )
+                return result
+            
+            # If no documents found in any domain, fall through to keyword hints
+            agent_logger.warning("⚠️ Pure semantic search found no documents, trying keyword hints")
+        
+        # HYBRID MODE: Use keyword hints to narrow search (faster but less accurate)
         if keyword_hint_domains:
             agent_logger.info(
                 f"🔍 Hybrid detection: Semantic search on {len(keyword_hint_domains)} keyword-hinted domains: {keyword_hint_domains}"
