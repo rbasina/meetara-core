@@ -362,27 +362,26 @@ The system uses **pure semantic search** across ALL domains for accurate detecti
 
 ```mermaid
 graph TB
-    A[User Query<br/>"What is software development?"] --> B[Embed Query<br/>sentence-transformers]
+    A[User Query] --> B[Embed Query]
+    B --> C[Search ALL Domains]
     
-    B --> C[Search ALL Domains<br/>Semantic Similarity]
+    C --> D1[tech_support]
+    C --> D2[software_dev]
+    C --> D3[programming]
+    C --> D4[other domains...]
     
-    C --> D1[Domain 1<br/>tech_support]
-    C --> D2[Domain 2<br/>software_dev]
-    C --> D3[Domain 3<br/>programming]
-    C --> D4[Domain N<br/>...]
+    D1 --> E1[Score: 0.47]
+    D2 --> E2[Score: 0.38]
+    D3 --> E3[Score: 0.22]
+    D4 --> E4[Score: ...]
     
-    D1 --> E1[Similarity: 0.47]
-    D2 --> E2[Similarity: 0.38]
-    D3 --> E3[Similarity: 0.22]
-    D4 --> E4[Similarity: ...]
-    
-    E1 --> F[Best Match<br/>tech_support ✅]
+    E1 --> F[Best Match: tech_support]
     E2 --> F
     E3 --> F
     E4 --> F
     
-    F --> G[Retrieve Documents<br/>from Best Domain]
-    G --> H[Return to LLM<br/>with Context]
+    F --> G[Retrieve Documents]
+    G --> H[Return to LLM]
     
     style A fill:#e1f5ff
     style F fill:#e8f5e9
