@@ -58,8 +58,8 @@ export default function LoadingIndicator({
             <TypingDots />
           </div>
           
-          {/* Progress Indicator */}
-          <div className="ml-13 flex items-center gap-2 text-xs text-muted-foreground">
+          {/* Progress Indicator - aligned with text (40px icon + 12px gap = 52px) */}
+          <div className="ml-[52px] flex items-center gap-2 text-xs text-muted-foreground">
             <ThinkingProgress />
           </div>
         </div>
