@@ -361,31 +361,50 @@ See [Document Upload Flow (Mermaid)](#document-upload-flow-mermaid) diagram abov
 The system uses **pure semantic search** across ALL domains for accurate detection:
 
 ```mermaid
-graph TB
-    A[User Query] --> B[Embed Query]
-    B --> C[Search ALL Domains]
+flowchart LR
+    subgraph Input
+        A[User Query]
+    end
     
-    C --> D1[tech_support]
-    C --> D2[software_dev]
-    C --> D3[programming]
-    C --> D4[other domains...]
+    subgraph Embedding
+        B[Vector Embedding]
+    end
     
-    D1 --> E1[Score: 0.47]
-    D2 --> E2[Score: 0.38]
-    D3 --> E3[Score: 0.22]
-    D4 --> E4[Score: ...]
+    subgraph SemanticSearch[Semantic Search - ALL Domains]
+        D1[(tech_support\n0.47)]
+        D2[(software_dev\n0.38)]
+        D3[(programming\n0.22)]
+        D4[(nutrition\n0.15)]
+    end
     
-    E1 --> F[Best Match: tech_support]
-    E2 --> F
-    E3 --> F
-    E4 --> F
+    subgraph Selection
+        F{Highest\nScore?}
+        G[Best Domain]
+    end
     
-    F --> G[Retrieve Documents]
-    G --> H[Return to LLM]
+    subgraph Output
+        H[Documents + Images]
+        I[LLM Response]
+    end
     
-    style A fill:#e1f5ff
-    style F fill:#e8f5e9
-    style H fill:#fff4e1
+    A --> B
+    B --> D1
+    B --> D2
+    B --> D3
+    B --> D4
+    
+    D1 --> F
+    D2 --> F
+    D3 --> F
+    D4 --> F
+    
+    F --> G
+    G --> H
+    H --> I
+    
+    style D1 fill:#4CAF50,color:#fff
+    style G fill:#4CAF50,color:#fff
+    style I fill:#2196F3,color:#fff
 ```
 
 ### Detection Modes
