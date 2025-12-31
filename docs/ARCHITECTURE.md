@@ -356,18 +356,60 @@ See [Document Upload Flow (Mermaid)](#document-upload-flow-mermaid) diagram abov
 
 ## 🎯 Domain Detection System
 
-### Two-Stage Detection
+### Pure Semantic Detection (Default)
 
-**Stage 1: Keyword Detection** (`query_analyzer.py`)
-- Exact keyword matching from `domain_keywords.yaml`
-- N-gram matching for phrases
-- Context-aware filtering (prevents false positives)
-- Cross-domain uniqueness scoring
+The system uses **pure semantic search** across ALL domains for accurate detection:
 
-**Stage 2: Semantic Detection** (`semantic_domain_detector.py`)
-- Embedding-based similarity search
-- Fallback when keyword detection is uncertain
-- Confidence scoring
+```mermaid
+graph TB
+    A[User Query<br/>"What is software development?"] --> B[Embed Query<br/>sentence-transformers]
+    
+    B --> C[Search ALL Domains<br/>Semantic Similarity]
+    
+    C --> D1[Domain 1<br/>tech_support]
+    C --> D2[Domain 2<br/>software_dev]
+    C --> D3[Domain 3<br/>programming]
+    C --> D4[Domain N<br/>...]
+    
+    D1 --> E1[Similarity: 0.47]
+    D2 --> E2[Similarity: 0.38]
+    D3 --> E3[Similarity: 0.22]
+    D4 --> E4[Similarity: ...]
+    
+    E1 --> F[Best Match<br/>tech_support ✅]
+    E2 --> F
+    E3 --> F
+    E4 --> F
+    
+    F --> G[Retrieve Documents<br/>from Best Domain]
+    G --> H[Return to LLM<br/>with Context]
+    
+    style A fill:#e1f5ff
+    style F fill:#e8f5e9
+    style H fill:#fff4e1
+```
+
+### Detection Modes
+
+**Mode 1: Pure Semantic (Default)** (`use_pure_semantic=True`)
+- Searches ALL domains using embeddings
+- Most accurate for general queries
+- Finds best domain based on document similarity
+- No keyword pre-filtering
+
+**Mode 2: Hybrid Detection** (`use_pure_semantic=False`)
+- Stage 1: Keyword pre-filtering (fast)
+- Stage 2: Semantic search on filtered domains
+- Faster but may miss domains with relevant content
+
+### Confidence Scoring
+
+| Confidence | Label | Description |
+|------------|-------|-------------|
+| ≥ 0.6 | Excellent match | High semantic similarity |
+| ≥ 0.4 | Good match | Strong relevance |
+| ≥ 0.25 | Relevant | Moderate match |
+| < 0.25 | General knowledge | LLM-only response |
 
 ### Conversation Context
 
