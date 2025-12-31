@@ -606,5 +606,5 @@ tar -xzf vectorstore_backup_20251122.tar.gz
 
 ---
 
-**Last Updated**: November 2025
+**Last Updated**: December 2025
 

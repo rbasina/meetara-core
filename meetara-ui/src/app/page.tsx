@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { 
   Sidebar, 
   ChatMessage, 
@@ -31,6 +31,8 @@ function MeetaraChat() {
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null)
   const [expandedImageMessageId, setExpandedImageMessageId] = useState<string | null>(null)
   const [expandedImageSections, setExpandedImageSections] = useState<Set<string>>(new Set())
+  const [backendConnected, setBackendConnected] = useState<boolean>(false)
+  const [isLoadingDomains, setIsLoadingDomains] = useState<boolean>(true)
   
   // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -95,14 +97,15 @@ function MeetaraChat() {
     }
   }, [sessionId])
 
-  // Load domains on mount
-  useEffect(() => {
-    loadDomains()
-  }, [])
-
-  const loadDomains = async () => {
+  const loadDomainsWithRetry = useCallback(async (retryCount = 0, maxRetries = 10) => {
+    setIsLoadingDomains(true)
     try {
       const response = await fetch('http://localhost:8000/api/chat/domains/categorized')
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+      }
+      
       const data: CategorizedDomainsResponse = await response.json()
       
       setCategories(data.categories || {})
@@ -119,25 +122,82 @@ function MeetaraChat() {
         })
       })
       setDomains(flatDomains)
+      setBackendConnected(true)
+      setIsLoadingDomains(false)
+      
+      console.log('✅ Domains loaded successfully')
     } catch (error) {
-      console.error('Failed to load domains:', error)
-      // Fallback to old endpoint
-      try {
-        const response = await fetch('http://localhost:8000/api/vectorstore/all')
-        const data = await response.json()
-        const domainData = Object.values(data.domains || {}).map((domainInfo: unknown) => {
-          const info = domainInfo as { domain: string; stats?: { count?: number }; status?: string }
-          return {
-            name: info.domain,
-            count: info.stats?.count || 0,
-            status: (info.status === 'active' ? 'active' : 'empty') as 'active' | 'empty'
+      setBackendConnected(false)
+      console.error(`Failed to load domains (attempt ${retryCount + 1}/${maxRetries}):`, error)
+      
+      // If we haven't exceeded max retries, retry with exponential backoff
+      if (retryCount < maxRetries) {
+        const delay = Math.min(1000 * Math.pow(2, retryCount), 10000) // Max 10 seconds
+        console.log(`Retrying in ${delay}ms...`)
+        
+        setTimeout(() => {
+          loadDomainsWithRetry(retryCount + 1, maxRetries)
+        }, delay)
+      } else {
+        // Final fallback to old endpoint
+        console.log('Attempting fallback to old endpoint...')
+        try {
+          const response = await fetch('http://localhost:8000/api/vectorstore/all')
+          if (response.ok) {
+            const data = await response.json()
+            const domainData = Object.values(data.domains || {}).map((domainInfo: unknown) => {
+              const info = domainInfo as { domain: string; stats?: { count?: number }; status?: string }
+              return {
+                name: info.domain,
+                count: info.stats?.count || 0,
+                status: (info.status === 'active' ? 'active' : 'empty') as 'active' | 'empty'
+              }
+            })
+            setDomains(domainData)
+            setBackendConnected(true)
+            setIsLoadingDomains(false)
+            console.log('✅ Domains loaded via fallback endpoint')
+          } else {
+            setIsLoadingDomains(false)
           }
-        })
-        setDomains(domainData)
-      } catch (fallbackError) {
-        console.error('Fallback also failed:', fallbackError)
+        } catch (fallbackError) {
+          console.error('Fallback also failed:', fallbackError)
+          console.error('⚠️ Vector database not available. Please ensure the backend is running.')
+          setIsLoadingDomains(false)
+        }
       }
     }
+  }, [])
+
+  // Load domains on mount with automatic retry
+  useEffect(() => {
+    loadDomainsWithRetry()
+  }, [loadDomainsWithRetry])
+
+  // Periodic health check - reload domains if backend becomes available
+  useEffect(() => {
+    if (!backendConnected && !isLoadingDomains) {
+      const healthCheckInterval = setInterval(() => {
+        // Check if backend is available
+        fetch('http://localhost:8000/api/chat/domains/categorized')
+          .then(response => {
+            if (response.ok) {
+              console.log('🔄 Backend detected, reloading domains...')
+              loadDomainsWithRetry(0, 5) // Quick retry with fewer attempts
+            }
+          })
+          .catch(() => {
+            // Backend still not available, will check again
+          })
+      }, 5000) // Check every 5 seconds
+
+      return () => clearInterval(healthCheckInterval)
+    }
+  }, [backendConnected, isLoadingDomains, loadDomainsWithRetry])
+
+  const loadDomains = async () => {
+    // Wrapper for manual refresh - resets retry count
+    loadDomainsWithRetry(0, 10)
   }
 
   const toggleCategory = (categoryName: string) => {
@@ -199,16 +259,21 @@ function MeetaraChat() {
         throw new Error(data.error)
       }
       
-      // Determine RAG status
+      // Get RAG status from backend response (more accurate than text pattern matching)
       let ragStatus: 'rag' | 'llm' | 'mixed' = 'llm'
-      if (data.response.includes('Based on the documents') || 
-          data.response.includes('According to the information')) {
-        ragStatus = 'rag'
-      } else if (data.response.includes('general knowledge')) {
-        ragStatus = 'llm'
-      } else if (data.response.includes('context') && 
-                 data.response.includes('general knowledge')) {
-        ragStatus = 'mixed'
+      if (data.rag_status) {
+        ragStatus = data.rag_status as 'rag' | 'llm' | 'mixed'
+      } else {
+        // Fallback to text pattern matching if backend doesn't provide rag_status
+        if (data.response.includes('Based on the documents') || 
+            data.response.includes('According to the information')) {
+          ragStatus = 'rag'
+        } else if (data.response.includes('general knowledge')) {
+          ragStatus = 'llm'
+        } else if (data.response.includes('context') && 
+                   data.response.includes('general knowledge')) {
+          ragStatus = 'mixed'
+        }
       }
 
       const assistantMessage: Message = {

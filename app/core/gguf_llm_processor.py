@@ -161,14 +161,35 @@ class MeetaraGGUFProcessor:
         try:
             agent_logger.info(f"🔄 Loading {model_type} model on first use: {self.model_paths[model_type]}")
             start_time = time.time()
+            
+            # ✅ SPEED OPTIMIZATIONS for llama-cpp-python
+            # n_batch: Number of tokens to process in parallel (higher = faster, more memory)
+            # n_gpu_layers: Offload layers to GPU if available (0 = CPU only)
+            # flash_attn: Use Flash Attention if supported (faster attention computation)
+            n_threads = os.cpu_count() or 4
+            n_batch = 512  # Process 512 tokens at a time (default is 512, can go higher if RAM allows)
+            
+            # Check if GPU is available (CUDA)
+            n_gpu_layers = 0  # Default: CPU only
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    n_gpu_layers = -1  # Offload ALL layers to GPU for maximum speed
+                    agent_logger.info(f"🚀 GPU detected! Offloading all layers to CUDA for faster inference")
+            except ImportError:
+                pass  # No torch, stay on CPU
+            
             self.models[model_type] = Llama(
                 model_path=str(self.model_paths[model_type]),
                 n_ctx=self.config.llm_context_length,
-                n_threads=os.cpu_count(),
+                n_threads=n_threads,
+                n_batch=n_batch,  # ✅ Parallel token processing
+                n_gpu_layers=n_gpu_layers,  # ✅ GPU acceleration if available
                 verbose=False
             )
             load_time = time.time() - start_time
-            agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s")
+            device_info = "GPU (CUDA)" if n_gpu_layers != 0 else f"CPU ({n_threads} threads)"
+            agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s on {device_info}")
             return True
         except Exception as e:
             agent_logger.error(f"Failed to load {model_type} model: {e}")
@@ -222,14 +243,18 @@ class MeetaraGGUFProcessor:
             # Generate response using LLM (always, even if context is empty)
             start_time = time.time()
             max_tokens = self.config.local_llm_max_length
-            if domain == "general_knowledge":
-                max_tokens = min(max_tokens, 512)
+            
+            # ✅ SPEED OPTIMIZATION: Lower temperature = faster, more deterministic responses
+            # Higher temperature causes more sampling iterations
+            temperature = min(self.config.llm_temperature, 0.7)  # Cap at 0.7 for speed
+            
             response = self.models[model_type](
                 prompt,
                 max_tokens=max_tokens,
-                temperature=self.config.llm_temperature,
+                temperature=temperature,
                 top_p=self.config.local_llm_top_p,
                 top_k=self.config.local_llm_top_k,
+                # Note: Removed "**Sources**" from stop tokens - we WANT the model to generate Sources section
                 stop=["</s>", "<|im_end|>", "\n\nHuman:", "\n\nAssistant:", "(End of response)", "Final output:", "🛑", "STOP"],
                 echo=False
             )
@@ -249,44 +274,224 @@ class MeetaraGGUFProcessor:
             response_text = re.sub(r'<reasoning>.*?</reasoning>', '', response_text, flags=re.DOTALL)
             response_text = re.sub(r'<thinking>.*?</thinking>', '', response_text, flags=re.DOTALL)
             
-            # AGGRESSIVE: Remove conversational reasoning at start
+            # Remove emoji-prefixed thinking blocks like "🧠 Thinking:" followed by content until Quick Answer
+            response_text = re.sub(r'🧠\s*Thinking:.*?(?=\*\*Quick Answer|\*\*\s*Quick Answer|Quick Answer:)', '', response_text, flags=re.DOTALL | re.IGNORECASE)
+            # Also catch variations without emoji
+            response_text = re.sub(r'^Thinking:.*?(?=\*\*Quick Answer|\*\*\s*Quick Answer|Quick Answer:)', '', response_text, flags=re.DOTALL | re.IGNORECASE | re.MULTILINE)
+            
+            # Remove "From the provided context" reasoning blocks
+            response_text = re.sub(r'From the provided context,?\s+.*?(?=\*\*Quick Answer|\*\*\s*Quick Answer|Quick Answer:)', '', response_text, flags=re.DOTALL | re.IGNORECASE)
+            
+            # Remove large thinking blocks that appear after Quick Answer
+            # Pattern: "Okay, the user is asking... [long planning text] ...Sources should list..."
+            thinking_block_pattern = r'(?:\n\n|^)Okay,?\s+the user is asking.*?Sources should list.*?(?=\n\n\*\*|$)'
+            response_text = re.sub(thinking_block_pattern, '', response_text, flags=re.IGNORECASE | re.DOTALL | re.MULTILINE)
+            
+            # AGGRESSIVE: Remove conversational reasoning throughout entire response
             # Keep removing thinking patterns until we get clean content
-            for _ in range(10):  # Safety limit
+            for _ in range(15):  # Increased safety limit
                 original_text = response_text
                 
-                # Pattern 1: "Okay, [the user/I/let me/we]..."
+                # Pattern 1: "Okay, [the user/I/let me/we]..." - works anywhere in response
                 response_text = re.sub(
-                    r'^Okay,?\s+(?:the user|I|let me|we|so|now|first|here).*?(?:\.|!|\?)\s*',
+                    r'(?:^|\n\n)Okay,?\s+(?:the user|I|let me|we|so|now|first|here).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 2: "The user is asking/wants/needs..." - works ANYWHERE in text (not just line start)
+                response_text = re.sub(
+                    r'The user\s+(?:is asking|wants|needs|seems|appears|might|could)[^.!?]*[.!?]',
                     '', response_text, flags=re.IGNORECASE
                 )
                 
-                # Pattern 2: "The user is asking/wants/needs..."
+                # Pattern 3: "Let me [verb]..." or "I need to [verb]..." - works anywhere
                 response_text = re.sub(
-                    r'^The user\s+(?:is asking|wants|needs|seems|appears|might|could).*?(?:\.|!|\?)\s*',
+                    r'(?:^|\n\n)(?:Let me|I need to|I should|I\'ll|I will|First,? I\'ll|First,? let me).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 4: "For the [section], ..." - planning language anywhere
+                response_text = re.sub(
+                    r'(?:^|\n\n)For the\s+(?:core concepts|first|second|third|next|effective|practical|emotional|physical|social).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 5: "Next, the [section]..." - transition planning anywhere
+                response_text = re.sub(
+                    r'(?:^|\n\n)Next,?\s+(?:the|I\'ll|let me|we).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 6: Generic thinking starters anywhere
+                response_text = re.sub(
+                    r'(?:^|\n\n)(?:So,?\s+|Now,?\s+|Well,?\s+|Hmm,?\s+|Alright,?\s+)(?:the|I|let|we|first).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 7: "I know that..." or "I should mention..." - reasoning anywhere
+                response_text = re.sub(
+                    r'(?:^|\n\n)(?:I know that|I should mention|I should include|I should cover).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 8: "The context mentions/also mentions..." - works ANYWHERE in text
+                response_text = re.sub(
+                    r'The context\s+(?:mentions|also mentions|includes|contains|shows|states)[^.!?]*[.!?]',
                     '', response_text, flags=re.IGNORECASE
                 )
                 
-                # Pattern 3: "Let me [verb]..." or "I need to [verb]..."
+                # Pattern 9: "The assistant could/might/should..." - meta-planning
                 response_text = re.sub(
-                    r'^(?:Let me|I need to|I should|I\'ll|I will|First,? I\'ll|First,? let me).*?(?:\.|!|\?)\s*',
+                    r'(?:^|\n\n)(?:The assistant|The system|It)(?:\s+could|\s+might|\s+should).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 10: "The symptoms/context mentions/includes..." - mid-response thinking
+                response_text = re.sub(
+                    r'(?:^|\n\n)(?:The symptoms|The context|The information|The data)(?:\s+mentioned|\s+includes|\s+contains|\s+shows).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 11: "I should present/include/mention..." - reasoning
+                response_text = re.sub(
+                    r'(?:^|\n\n)I should\s+(?:present|include|mention|cover|write|add).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 12: "This section might be/needs to..." - planning
+                response_text = re.sub(
+                    r'(?:^|\n\n)(?:This section|This part|The user\'s question)(?:\s+might|\s+needs|\s+should|\s+could).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # Pattern 13: "Maybe include/mention..." - uncertain planning
+                response_text = re.sub(
+                    r'(?:^|\n\n)(?:Maybe|Perhaps|I could)\s+(?:include|mention|add|write).*?(?:\.|!|\?|$)\s*',
+                    '', response_text, flags=re.IGNORECASE | re.MULTILINE
+                )
+                
+                # ============================================================
+                # INLINE THINKING REMOVAL - catches thinking ANYWHERE in text
+                # These patterns work mid-sentence, not just at line boundaries
+                # ============================================================
+                
+                # Inline Pattern 1: "The user is asking about X" anywhere
+                response_text = re.sub(
+                    r'The user is asking about[^.!?]*[.!?]\s*',
                     '', response_text, flags=re.IGNORECASE
                 )
                 
-                # Pattern 4: "For the [section], ..." - planning language
+                # Inline Pattern 2: "I should present/mention/include these" anywhere
                 response_text = re.sub(
-                    r'^For the\s+(?:core concepts|first|second|third|next|effective|practical).*?(?:\.|!|\?)\s*',
+                    r'I should (?:present|mention|include|cover|note|add|write)[^.!?]*[.!?]\s*',
                     '', response_text, flags=re.IGNORECASE
                 )
                 
-                # Pattern 5: "Next, the [section]..." - transition planning
+                # Inline Pattern 3: "The context also mentions/includes" anywhere
                 response_text = re.sub(
-                    r'^Next,?\s+(?:the|I\'ll|let me|we).*?(?:\.|!|\?)\s*',
+                    r'The context (?:also )?(?:mentions|includes|contains|shows|states|indicates)[^.!?]*[.!?]\s*',
                     '', response_text, flags=re.IGNORECASE
                 )
                 
-                # Pattern 6: Generic thinking starters
+                # Inline Pattern 4: "According to the provided context" anywhere
                 response_text = re.sub(
-                    r'^(?:So,?\s+|Now,?\s+|Well,?\s+|Hmm,?\s+|Alright,?\s+)(?:the|I|let|we|first).*?(?:\.|!|\?)\s*',
+                    r'According to the (?:provided )?context[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 5: "From the provided context" anywhere
+                response_text = re.sub(
+                    r'From the (?:provided )?context[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 6: "The symptoms mentioned in the context" anywhere
+                response_text = re.sub(
+                    r'The (?:symptoms|information|data|details) mentioned in the context[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 7: "This section might be less relevant" anywhere
+                response_text = re.sub(
+                    r'(?:This section|This part|This information) (?:might|may|could) be[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 8: "However, the guidelines suggest" anywhere
+                response_text = re.sub(
+                    r'However,? the (?:guidelines|instructions|prompt|format) (?:suggest|require|say)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 9: "I need to find/include relevant" anywhere
+                response_text = re.sub(
+                    r'I need to (?:find|include|add|mention|cover)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 10: "Maybe include a percentage or study" anywhere
+                response_text = re.sub(
+                    r'Maybe (?:include|mention|add)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 11: Long reasoning sentences with "could/might/should" patterns
+                response_text = re.sub(
+                    r'(?:Tips could include|Common pitfalls to avoid might be|Expert recommendations could be)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 12: "Sources need to be cited" anywhere
+                response_text = re.sub(
+                    r'Sources (?:need to|should|must) be[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 13: "Avoid any internal thinking" (ironic self-reference)
+                response_text = re.sub(
+                    r'Avoid any (?:internal thinking|instructions|meta)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 14: "Check for any markdown" or similar
+                response_text = re.sub(
+                    r'(?:Check for|Ensure|Make sure)[^.!?]*(?:markdown|plain text|format)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 15: "Also, ensure the sections are" anywhere
+                response_text = re.sub(
+                    r'Also,? ensure (?:the|that)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 16: "Wait, the user's question is about..." anywhere
+                response_text = re.sub(
+                    r'Wait,?\s+the user[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 17: "I'll use/include/focus on..." anywhere
+                response_text = re.sub(
+                    r"I'll (?:use|include|focus|list|mention)[^.!?]*[.!?]\s*",
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 18: "Each section must/should/has..." anywhere
+                response_text = re.sub(
+                    r'Each section (?:must|should|has|needs)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 19: "The Quick Answer should..." anywhere
+                response_text = re.sub(
+                    r'The (?:Quick Answer|Emotional|Physical|Social)[^.!?]*(?:should|has|must|needs)[^.!?]*[.!?]\s*',
+                    '', response_text, flags=re.IGNORECASE
+                )
+                
+                # Inline Pattern 20: "The sources are/section lists..." anywhere
+                response_text = re.sub(
+                    r'The (?:sources|Sources) (?:are|section|lists)[^.!?]*[.!?]\s*',
                     '', response_text, flags=re.IGNORECASE
                 )
                 
@@ -294,7 +499,7 @@ class MeetaraGGUFProcessor:
                 if response_text == original_text:
                     break
             
-            # Remove multi-paragraph thinking blocks
+            # Remove multi-paragraph thinking blocks (more aggressive)
             paragraphs = response_text.split('\n\n')
             clean_paragraphs = []
             found_content = False
@@ -302,33 +507,64 @@ class MeetaraGGUFProcessor:
             thinking_indicators = [
                 'the user', 'i need to', 'i should', 'let me', "i'll", 'first step',
                 'second step', 'third step', 'for the core', 'for the effective',
+                'for the emotional', 'for the physical', 'for the social', 'for the practical',
                 'should include', 'should cover', 'should mention', 'might be',
-                'could be', 'the query', 'this question', 'assessment and tracking'
+                'could be', 'the query', 'this question', 'assessment and tracking',
+                'i know that', 'i should mention', 'the context mentions', 'according to the provided',
+                'the assistant could', 'the assistant must', 'sources should list',
+                'the symptoms mentioned', 'the symptoms include', 'i should present',
+                'this section might', 'this section needs', 'maybe include', 'perhaps mention',
+                'the information shows', 'the data indicates', 'i need to find'
             ]
             
             for para in paragraphs:
                 para_lower = para.lower().strip()
                 if not para_lower:
+                    clean_paragraphs.append(para)  # Keep empty paragraphs for spacing
                     continue
                 
+                # Check if paragraph is a section header (keep these)
+                is_section_header = para_lower.startswith('**') and para_lower.endswith('**')
+                if is_section_header:
+                    clean_paragraphs.append(para)
+                    found_content = True
+                    continue
+                
+                # Check if paragraph contains content markers (keep these)
+                content_markers = ['**quick answer', '**', '# ', '## ', '- ', '• ', '1.', '2.', '3.', 'sources']
+                has_content_marker = any(marker in para_lower for marker in content_markers)
+                
+                if has_content_marker:
+                    clean_paragraphs.append(para)
+                    found_content = True
+                    continue
+                
+                # Check if paragraph is thinking/reasoning
                 is_thinking = False
+                
+                # Check for thinking indicators at start or in first 150 chars
                 for indicator in thinking_indicators:
-                    if para_lower.startswith(indicator) or f', {indicator}' in para_lower[:100]:
+                    if para_lower.startswith(indicator) or f' {indicator}' in para_lower[:150]:
                         is_thinking = True
                         break
                 
-                if para_lower.startswith(('okay', 'so ', 'now ', 'next', 'also', 'for the', 'the user')):
+                # Check for common thinking patterns
+                if para_lower.startswith(('okay', 'so ', 'now ', 'next', 'also', 'for the', 'the user', 'i know', 'i should', 'let me start')):
                     is_thinking = True
                 
-                content_markers = ['**quick answer', '**', '# ', '## ', '- ', '• ', '1.', '2.', '3.']
-                for marker in content_markers:
-                    if marker in para_lower:
-                        found_content = True
-                        break
+                # Check if paragraph is mostly planning language (long paragraphs with thinking words)
+                if len(para_lower) > 100:
+                    thinking_word_count = sum(1 for word in ['should', 'could', 'might', 'need to', 'will', 'must'] if word in para_lower)
+                    if thinking_word_count >= 3 and not has_content_marker:
+                        is_thinking = True
                 
-                if found_content or not is_thinking:
+                # Only keep non-thinking paragraphs, or thinking paragraphs if we haven't found real content yet
+                if not is_thinking:
                     clean_paragraphs.append(para)
                     found_content = True
+                elif not found_content:
+                    # Keep thinking if it's before any real content (might be at very start)
+                    clean_paragraphs.append(para)
             
             if clean_paragraphs:
                 response_text = '\n\n'.join(clean_paragraphs)
@@ -338,6 +574,7 @@ class MeetaraGGUFProcessor:
             # ============================================================
             # Remove any text in square brackets that looks like template placeholders
             placeholder_patterns = [
+                # Old bracket-style placeholders
                 r'\[Your Title About the Topic\]',
                 r'\[2-3 sentences[^\]]*\]',
                 r'\[Direct[^\]]*\]',
@@ -362,6 +599,21 @@ class MeetaraGGUFProcessor:
                 r'\<direct answer\>',
                 r'\<summary\>',
                 r'\<reference\>',
+                # New instruction-style text that model might copy
+                r'Write 2-3 bullet points with specific data.*?\.',
+                r'Write 3 numbered action steps.*?\.',
+                r'Write 2-3 practical tips.*?\.',
+                r'Ask ONE specific follow-up question.*?\.',
+                r'Include numbers/percentages when available\.',
+                r'Include common pitfalls to avoid\.',
+                # Instruction lines that might appear in output
+                r'NOW WRITE YOUR RESPONSE FOLLOWING THIS EXACT FORMAT:',
+                r'RESPONSE FORMAT TO FOLLOW:',
+                r'EXAMPLE RESPONSE FORMAT.*?:',
+                # Incomplete placeholder patterns
+                r'\?\s*Make the offer specific.*',
+                r'\?\s*This plan can help you.*',
+                r'\?\s*Would you like me to create/provide/design.*',
             ]
             for pattern in placeholder_patterns:
                 response_text = re.sub(pattern, '', response_text, flags=re.IGNORECASE)
@@ -374,6 +626,24 @@ class MeetaraGGUFProcessor:
             response_text = re.sub(r'^-\s*$', '', response_text, flags=re.MULTILINE)
             response_text = re.sub(r'^\d+\.\s*$', '', response_text, flags=re.MULTILINE)
             
+            # Remove empty sections (section header with no content before next section)
+            # Pattern: **Section Name** followed by only whitespace/newlines and then immediately another **Section**
+            response_text = re.sub(
+                r'\*\*[^*]+\*\*\s*\n{2,}(?=\*\*[^*]+\*\*)',
+                '', response_text, flags=re.MULTILINE
+            )
+            
+            # Remove placeholder text like "?" or incomplete placeholders
+            response_text = re.sub(r'^\?\s*$', '', response_text, flags=re.MULTILINE)
+            response_text = re.sub(r'^\?\s*Make the offer', '', response_text, flags=re.MULTILINE | re.IGNORECASE)
+            
+            # Remove thinking blocks that appear after sections (more aggressive)
+            # Pattern: Section header followed by thinking text like "The symptoms mentioned..." or "I should present..."
+            response_text = re.sub(
+                r'(\*\*[^*]+\*\*)\s*\n+(?:The (?:symptoms|context|information|data) (?:mentioned|includes|contains|shows)|I should (?:present|include|mention)|This section (?:might|needs|should)|Maybe (?:include|mention)).*?(?=\n\n\*\*|\n\nSources|\Z)',
+                r'\1\n\n', response_text, flags=re.IGNORECASE | re.DOTALL | re.MULTILINE
+            )
+            
             # Normalize multiple blank lines
             response_text = re.sub(r'\n{3,}', '\n\n', response_text)
             
@@ -381,7 +651,12 @@ class MeetaraGGUFProcessor:
             
             # ✅ Minimal safety net: Only remove obvious duplicates (prevention should handle most cases)
             # Find first Sources section - response should end there
-            first_sources_idx = response_text.find("**Sources**")
+            # Check for multiple variations of Sources header
+            first_sources_idx = -1
+            for sources_pattern in ["**Sources**", "Sources\n", "Sources:", "**Source**"]:
+                idx = response_text.find(sources_pattern)
+                if idx > 0 and (first_sources_idx < 0 or idx < first_sources_idx):
+                    first_sources_idx = idx
             
             if first_sources_idx > 0:
                 # Find end of Sources section (after bullet points)
@@ -409,6 +684,66 @@ class MeetaraGGUFProcessor:
                         response_text = response_text[:sources_section_end].strip()
                         agent_logger.warning(f"⚠️ Removed {len(text_after)} chars after Sources (should have been prevented by prompt)")
             
+            # ============================================================
+            # DEDUPLICATE SOURCES: Remove duplicate source entries
+            # ============================================================
+            # Find Sources section and deduplicate entries
+            sources_match = re.search(r'(\*\*Sources\*\*|\*\*Source\*\*|Sources:)(.*?)(?=\n\n[A-Z]|\n\n\*\*|\Z)', response_text, flags=re.DOTALL | re.IGNORECASE)
+            if sources_match:
+                sources_header = sources_match.group(1)
+                sources_content = sources_match.group(2)
+                
+                # Extract source lines (bullet points)
+                source_lines = [line.strip() for line in sources_content.split('\n') if line.strip().startswith('-') or line.strip().startswith('•')]
+                
+                # Group by filename and collect page numbers
+                file_pages = {}  # filename -> set of page numbers
+                for source_line in source_lines:
+                    # Normalize the source name (remove bullets, extra spaces)
+                    normalized = re.sub(r'^[-•]\s*', '', source_line).strip()
+                    
+                    # Extract filename
+                    filename_match = re.search(r'([^/\\]+\.(pdf|doc|docx|txt))', normalized, re.IGNORECASE)
+                    if filename_match:
+                        filename = filename_match.group(1)
+                        
+                        # Extract page numbers if present
+                        page_match = re.search(r'page[s]?\s*(\d+(?:\s*[-,]\s*\d+)*)', normalized, re.IGNORECASE)
+                        if page_match:
+                            pages = page_match.group(1)
+                        else:
+                            pages = None
+                        
+                        if filename not in file_pages:
+                            file_pages[filename] = set()
+                        if pages:
+                            file_pages[filename].add(pages)
+                    else:
+                        # Non-file source (e.g., "Based on general knowledge")
+                        if normalized not in file_pages:
+                            file_pages[normalized] = set()
+                
+                # Build unique sources list with combined page numbers
+                unique_sources = []
+                for filename, pages in file_pages.items():
+                    if pages:
+                        # Combine all page numbers
+                        all_pages = sorted(set(p.strip() for p in ','.join(pages).replace('-', ',').split(',') if p.strip().isdigit()))
+                        if all_pages:
+                            unique_sources.append(f"- {filename} (pages {', '.join(all_pages)})")
+                        else:
+                            unique_sources.append(f"- {filename}")
+                    else:
+                        unique_sources.append(f"- {filename}")
+                
+                # Rebuild sources section with unique entries
+                if len(unique_sources) < len(source_lines):
+                    agent_logger.info(f"📚 Deduplicated sources: {len(source_lines)} → {len(unique_sources)} unique")
+                new_sources = sources_header + '\n' + '\n'.join(unique_sources)
+                response_text = response_text[:sources_match.start()] + new_sources
+                # CRITICAL: Truncate EVERYTHING after Sources - no exceptions
+                agent_logger.info(f"✂️ Truncated response at Sources section")
+            
             # Check for duplicate Quick Answer at start (shouldn't happen with proper prompt)
             if response_text.count("**Quick Answer:**") > 1 or response_text.count("Quick Answer:") > 1:
                 first_qa = response_text.find("**Quick Answer:**")
@@ -420,6 +755,78 @@ class MeetaraGGUFProcessor:
                 if second_qa > 0:
                     response_text = response_text[:second_qa].strip()
                     agent_logger.warning(f"⚠️ Removed duplicate Quick Answer (should have been prevented by prompt)")
+            
+            # ============================================================
+            # FINAL CLEANUP: Remove any remaining thinking that slipped through
+            # ============================================================
+            
+            # CRITICAL: Find the last .pdf/.doc source and truncate everything after it
+            # This catches cases where thinking text appears after sources without proper separation
+            last_source_match = None
+            for match in re.finditer(r'[-•]\s*[^\n]+\.(?:pdf|doc|docx|txt)[^\n]*', response_text, re.IGNORECASE):
+                last_source_match = match
+            
+            if last_source_match:
+                # Check if there's significant text after the last source
+                text_after_sources = response_text[last_source_match.end():].strip()
+                # If there's more than just whitespace/punctuation after sources, it's thinking text
+                if text_after_sources and len(text_after_sources) > 10:
+                    # Check if it starts with thinking patterns
+                    thinking_starters = ['let me', 'i should', 'i need', 'wait,', 'the user', 'i\'ll', 'each section', 'the quick', 'under ', 'also,', 'so i', 'first,', 'then,']
+                    if any(text_after_sources.lower().startswith(p) for p in thinking_starters):
+                        response_text = response_text[:last_source_match.end()].strip()
+                        agent_logger.warning(f"⚠️ Removed {len(text_after_sources)} chars of thinking text after sources")
+            
+            # These are last-resort patterns for text that escaped earlier passes
+            final_cleanup_patterns = [
+                # Sentences starting with meta-commentary
+                r'^(?:The user|I should|I need to|Let me|I know that|The context|According to)[^.!?]*[.!?]\s*',
+                # Sentences with planning language
+                r'(?:Tips could include|Common pitfalls|Expert recommendations could be)[^.!?]*[.!?]\s*',
+                # Self-referential instructions
+                r'(?:Sources need to be cited|Avoid any internal|Check for any markdown|Ensure the sections)[^.!?]*[.!?]\s*',
+                # Incomplete sentences with question marks followed by instructions
+                r'\?\s*(?:Make the offer|This plan can help|Would you like me to)[^.!?]*[.!?]?\s*',
+            ]
+            for pattern in final_cleanup_patterns:
+                response_text = re.sub(pattern, '', response_text, flags=re.IGNORECASE | re.MULTILINE)
+            
+            # Remove any lines that are ONLY thinking (no actual content)
+            lines = response_text.split('\n')
+            clean_lines = []
+            thinking_only_patterns = [
+                r'^the user is asking',
+                r'^i should',
+                r'^i need to',
+                r'^the context',
+                r'^according to',
+                r'^from the provided',
+                r'^this section',
+                r'^maybe include',
+                r'^sources need',
+                r'^avoid any',
+                r'^check for',
+                r'^ensure the',
+                r'^wait,',  # "Wait, the user's question..."
+                r'^okay,',  # "Okay, let me..."
+                r'^so,',    # "So, I'll..."
+                r'^now,',   # "Now, let me..."
+                r"^i'll",   # "I'll use..."
+                r'^the quick answer',  # Planning text
+                r'^the emotional',     # Section planning
+                r'^the physical',      # Section planning
+                r'^the social',        # Section planning
+                r'^each section',      # Planning text
+            ]
+            for line in lines:
+                line_lower = line.strip().lower()
+                is_thinking_only = any(re.match(pattern, line_lower) for pattern in thinking_only_patterns)
+                if not is_thinking_only:
+                    clean_lines.append(line)
+            response_text = '\n'.join(clean_lines)
+            
+            # Final normalization
+            response_text = re.sub(r'\n{3,}', '\n\n', response_text).strip()
             
             # ✅ DEBUG: Check if response follows structure
             has_title = "**" in response_text and response_text.count("**") >= 2
@@ -627,55 +1034,53 @@ CRITICAL RULES:
             selected_headers = section_headers[:min(4, len(section_headers))]
             
             # Build sections following meetara_lab_core.py pattern but with domain headers
+            # Use clear instructions WITHOUT brackets that model might copy
             sections_template = ""
             if len(selected_headers) >= 1:
                 sections_template += f"{selected_headers[0]}\n"
-                sections_template += "[Rich analysis with 2-3 specific data points, research findings, or expert insights. Include numbers/percentages when relevant.]\n\n"
+                sections_template += "Write 2-3 bullet points with specific data, research findings, or expert insights. Include numbers/percentages when available.\n\n"
             
             if len(selected_headers) >= 2:
                 sections_template += f"{selected_headers[1]}\n"
-                sections_template += "1. [First immediate action - specific and achievable]\n"
-                sections_template += "2. [Second step - builds on step 1]\n"
-                sections_template += "3. [Third step - timeline/follow-up]\n\n"
+                sections_template += "Write 3 numbered action steps the user can take immediately.\n\n"
             
             if len(selected_headers) >= 3:
                 sections_template += f"{selected_headers[2]}\n"
-                sections_template += "[2-3 practical tips, common pitfalls to avoid, or expert recommendations. Keep it practical and specific.]\n\n"
+                sections_template += "Write 2-3 practical tips or recommendations. Include common pitfalls to avoid.\n\n"
             
-            # Add "Thoughtful Next Question" if we have a 4th header, otherwise use it as optional
+            # Add 4th header if available (optional follow-up)
             if len(selected_headers) >= 4:
                 sections_template += f"{selected_headers[3]}\n"
-                sections_template += f"[Ask ONE specific question that offers to provide MORE detailed help specifically within the '{domain_display}' domain. Use natural language patterns like \"Would you like me to create/provide/design a [relevant {domain_display} resource]?\" Make the offer specific to their situation, current progress, and what would be most helpful next in this domain.]\n\n"
+                sections_template += "- Offer specific follow-up help related to the topic\n\n"
+            
+            # Build generic example using the ACTUAL section headers (dynamic, not hardcoded)
+            example_sections = ""
+            if len(selected_headers) >= 1:
+                example_sections += f"{selected_headers[0]}\n- First key point with specific data or statistic\n- Second insight with research finding\n- Third point with expert recommendation\n\n"
+            if len(selected_headers) >= 2:
+                example_sections += f"{selected_headers[1]}\n1. First action step - specific and achievable\n2. Second step - builds on first\n3. Third step - follow-up or timeline\n\n"
+            if len(selected_headers) >= 3:
+                example_sections += f"{selected_headers[2]}\n- Practical tip or recommendation\n- Common pitfall to avoid\n- Expert advice for best results\n\n"
             
             system_prompt = f"""You are me²TARA, an advanced AI assistant specialized in {domain_display}. {format_instruction}
 
-**Quick Answer: What This Means for You (Direct Answer)**
-[Direct, specific response - 2-4 sentences. Be empathetic and address their specific situation.]
+YOUR RESPONSE MUST FOLLOW THIS EXACT STRUCTURE:
 
-{sections_template}
+**Quick Answer:** [Write 2-3 sentences directly answering the question]
 
-**Sources**
-- [If RAG documents were used: list PDF filenames and page numbers]
-- [If no RAG: "Based on general {domain} knowledge"]
+{example_sections}**Sources**
+- [List document names if RAG was used, otherwise write "Based on general knowledge"]
 
-CRITICAL GUIDELINES:
-- ❌ ABSOLUTELY NEVER use <think>, <reasoning>, or ANY internal thinking tags
-- ❌ ABSOLUTELY NEVER start with meta-commentary like "Okay, the user wants..." or "Let me think..." or "The query asks about..."
-- ❌ ABSOLUTELY NEVER show your reasoning process or thought patterns
-- ❌ ABSOLUTELY NEVER copy bracketed instruction text like "[Direct, specific response...]", "[Rich analysis...]", "[First immediate action...]" - these are INSTRUCTIONS to follow, NOT content to output
-- ❌ ABSOLUTELY NEVER copy internal instructions like "[Read their exact question carefully...]" or "[Be emotionally intelligent...]" - these are guidance for you, NOT content for the user
-- ❌ Replace ALL bracketed placeholders with actual content - do NOT copy them literally
-- ❌ Do NOT add numbers, labels, or meta-commentary
-- ✅ ALWAYS read their exact question carefully and understand the HUMAN CONTEXT behind it. Be emotionally intelligent and empathetic.
-- ✅ ALWAYS start with a contextual greeting that acknowledges their specific question
-- ✅ For safety-critical domains (health, crisis, mental health, legal/financial), follow the structure exactly with domain-specific headers
-- ✅ For other domains, you may adapt section titles and structure if another format better fits the question, but keep the response clear and well-organized
-- ✅ Use the domain-specific section headers exactly as shown above (copy them exactly with **bold**)
-- ✅ Write REAL content under each header - replace all [Write...] instructions with actual text
-- ✅ ALWAYS write as if speaking directly to the user about their unique situation
-- ✅ Generate the response ONCE - do NOT repeat sections
-- ✅ {structure_note}
-- ✅ STOP IMMEDIATELY after completing Sources section - the response ENDS at Sources"""
+CRITICAL RULES:
+1. Your response MUST start with "**Quick Answer:**" - NOTHING before it
+2. ❌ NEVER write "🧠 Thinking:" or any thinking/reasoning blocks
+3. ❌ NEVER write "From the provided context" or explain your reasoning
+4. ❌ NEVER start with planning like "The user is asking..." or "I should..."
+5. Use the EXACT section headers shown above (copy them with **bold**)
+6. Write REAL content under each section - bullet points with actual information
+7. Include **Sources** section at the end with document names
+8. STOP immediately after Sources - nothing more
+9. {structure_note}"""
         
         # ✅ Add conversation history if available
         if conversation_history and len(conversation_history) > 0:

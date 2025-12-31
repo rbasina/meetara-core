@@ -767,6 +767,15 @@ class MeetaraAgent:
             self._update_session_domain(session_id, applied_domain)
             response_timestamp = datetime.now(timezone.utc).isoformat()
             
+            # Determine RAG status based on whether documents were used
+            docs_used = len(context_docs) if 'context_docs' in locals() and context_docs else 0
+            if docs_used > 0 and detection.confidence >= 0.4:
+                rag_status = "rag"  # RAG documents were used
+            elif docs_used > 0:
+                rag_status = "mixed"  # RAG + LLM knowledge
+            else:
+                rag_status = "llm"  # Pure LLM knowledge
+            
             response_dict = {
                 "response": response,
                 "domain": applied_domain,
@@ -776,6 +785,8 @@ class MeetaraAgent:
                 "images": images,  # ✅ Include images if available (always initialized)
                 "request_timestamp": request_timestamp,
                 "response_timestamp": response_timestamp,
+                "rag_status": rag_status,  # ✅ RAG status for UI
+                "documents_used": docs_used,  # ✅ Number of documents used
             }
             agent_logger.info(f"⏱️ Total pipeline time {time.time() - overall_start:.2f}s")
             

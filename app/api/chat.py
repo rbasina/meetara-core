@@ -2,6 +2,7 @@
 Chat API endpoints for Meetara Core.
 """
 from typing import Dict, Any, Optional, List
+from datetime import datetime
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel, Field
 from app.core.logger import api_logger, agent_logger
@@ -35,6 +36,8 @@ class ChatResponse(BaseModel):
     images: Optional[List[Dict[str, Any]]] = None  # ✅ Images from documents
     request_timestamp: Optional[str] = None
     response_timestamp: Optional[str] = None
+    rag_status: Optional[str] = "llm"  # ✅ 'rag', 'llm', or 'mixed' - for UI display
+    documents_used: Optional[int] = 0  # ✅ Number of RAG documents used
 
 
 @router.get("/test-image")
@@ -81,6 +84,89 @@ async def chat_endpoint(
             "lang": request.lang,
             "emotion": request.emotion
         })
+        
+        # ✅ Special handling: Detect queries about me²TARA itself
+        query_lower = sanitized_query.lower().strip()
+        query_words = query_lower.split()
+        
+        # Check if query contains "meetara", "me²tara", or "me2tara" (case-insensitive)
+        meetara_variants = ["meetara", "me²tara", "me2tara"]
+        has_meetara_name = any(variant in query_lower for variant in meetara_variants)
+        
+        if has_meetara_name:
+            # Check if query is asking ABOUT meetara (not asking meetara TO do something)
+            question_indicators = [
+                "what", "who", "tell", "explain", "describe", 
+                "about", "does", "can you", "how", "what's", "who's"
+            ]
+            is_question_about = any(indicator in query_lower for indicator in question_indicators)
+            
+            # Very short queries with just "meetara" are likely asking about it
+            is_short_query = len(query_words) <= 5
+            
+            # Exclude clear action requests (e.g., "meetara help me", "meetara find")
+            action_requests = [
+                "meetara help", "meetara find", "meetara search", "meetara get",
+                "meetara show", "meetara give", "meetara create", "meetara make",
+                "meetara do this", "meetara do that", "meetara calculate"
+            ]
+            is_action_request = any(req in query_lower for req in action_requests)
+            
+            # If it's a question about meetara OR a short query, and not an action request
+            is_about_meetara = (is_question_about or is_short_query) and not is_action_request
+            
+            # Log for debugging
+            if is_about_meetara:
+                api_logger.info(f"🔍 Detected query about me²TARA: '{sanitized_query[:100]}'")
+        else:
+            is_about_meetara = False
+        
+        if is_about_meetara:
+            # Return accurate information about me²TARA based on MEETARA_CORE.md
+            correct_response = """**Quick Answer:** me²TARA is an offline-first, privacy-focused, and empathetic AI assistant — built from the ground up to run entirely on your own hardware, understand your emotional context, and provide expert-level assistance across over 100 knowledge domains.
+
+## What Does "me²TARA" Mean?
+
+The name **me²TARA** carries deep significance:
+
+- **me²** (me-squared) — This AI is an extension of *you*. It amplifies your capabilities, learns your context, and serves your needs — not a corporation's interests. The "squared" represents exponential empowerment.
+
+- **TARA** — In Sanskrit, "Tara" (तारा) means "star" or "one who guides across." Like a guiding star, me²TARA illuminates your path through complex information, helping you navigate healthcare decisions, legal questions, educational challenges, and life's countless domains of knowledge.
+
+Together, **me²TARA** represents *your personal guiding star* — an AI that belongs to you, works for you, and stays with you.
+
+## Core Philosophy
+
+### 🔒 Privacy by Design
+Every computation happens on your machine. Your documents stay in your `vectorstore/` folder. Your conversations remain in your local session. There is no cloud. There is no "trust us" — there is only verifiable, auditable, local processing.
+
+### 🌐 Offline-First
+me²TARA is designed to function completely offline with local language models, local vector database, and local embeddings. Your AI assistant doesn't abandon you when WiFi does.
+
+### 💚 Empathetic Intelligence
+me²TARA integrates emotion detection to adapt its communication style based on your emotional state, making responses more helpful and contextually appropriate.
+
+## Domain Expertise
+
+me²TARA is a **domain-aware knowledge system** with specialized understanding across critical areas:
+- **Safety-Critical Domains**: Healthcare, Legal & Financial, Emergency
+- **Expert Domains**: Business, Education, Technology
+- **Quality Domains**: Personal Life, Creative, Wellness
+
+## The RAG Advantage
+
+me²TARA uses **Retrieval-Augmented Generation (RAG)** to retrieve relevant information from YOUR uploaded documents, ensuring responses are grounded in your actual knowledge base rather than hallucinated from training data.
+
+**Welcome to me²TARA — your guiding star.**"""
+            
+            api_logger.info("Detected query about me²TARA - returning accurate system information")
+            return ChatResponse(
+                response=correct_response,
+                domain="general",
+                confidence=1.0,
+                request_timestamp=datetime.now().isoformat(),
+                response_timestamp=datetime.now().isoformat()
+            )
         
         # Get the agent
         agent = get_meetara_agent()

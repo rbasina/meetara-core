@@ -90,19 +90,24 @@ export default function Sidebar({
     <aside className="hidden md:flex w-80 flex-col bg-[hsl(var(--sidebar-bg))] border-r border-[hsl(var(--sidebar-border))] h-screen">
       {/* Header with Logo */}
       <div className="p-5 border-b border-[hsl(var(--sidebar-border))]">
-        <div className="flex items-center justify-between">
-          <AnimatedLogo 
-            size="md" 
-            showText={true} 
-            showTagline={false}
-            glowIntensity="high"
-            className="justify-start"
-          />
+        <div className="flex items-start justify-between">
+          <div className="flex flex-col gap-1 flex-1 min-w-0">
+            <AnimatedLogo 
+              size="md" 
+              showText={true} 
+              showTagline={false}
+              glowIntensity="high"
+              className="justify-start"
+            />
+            <p className="text-xs text-muted-foreground ml-[68px]">
+              Knowledge-Based AI Assistant
+            </p>
+          </div>
           
           {/* Theme Toggle */}
           <button
             onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
-            className="p-2 rounded-lg hover:bg-[hsl(var(--sidebar-hover))] transition-colors"
+            className="p-2 rounded-lg hover:bg-[hsl(var(--sidebar-hover))] transition-colors flex-shrink-0"
             title={`Switch to ${resolvedTheme === 'dark' ? 'light' : 'dark'} mode`}
           >
             {resolvedTheme === 'dark' ? (
@@ -112,9 +117,6 @@ export default function Sidebar({
             )}
           </button>
         </div>
-        <p className="text-xs text-muted-foreground mt-1 ml-[68px]">
-          Knowledge-Based AI Assistant
-        </p>
       </div>
 
       {/* Quick Stats */}

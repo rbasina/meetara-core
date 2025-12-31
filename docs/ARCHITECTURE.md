@@ -504,17 +504,45 @@ MEETARA_INSTRUCT_MODEL=meetara-qwen3-1.7b-Q4_K_M.gguf
 
 ### Response Post-Processing
 
-**Location**: `app/core/gguf_llm_processor.py` → `_post_process_response()`
+**Location**: `app/core/gguf_llm_processor.py` → `generate_response()`
 
-The LLM response goes through post-processing to ensure clean, user-friendly output:
+The LLM response goes through extensive post-processing to ensure clean, user-friendly output:
 
-1. **Remove Internal Thinking**: Strips `<think>`, `<reasoning>`, `<thinking>` tags
-2. **Remove Meta-Commentary**: Filters "Okay, the user is asking...", "Let me think..." patterns
+1. **Remove Internal Thinking**: Strips `<think>`, `<reasoning>`, `<thinking>` tags and blocks
+2. **Remove Meta-Commentary**: Filters patterns like:
+   - "Okay, the user is asking...", "Let me think..."
+   - "Wait, the user's question is about..."
+   - "I should present...", "The context mentions..."
+   - "Each section must have...", "The sources are..."
 3. **Remove Placeholders**: Cleans `[Your Title]`, `[2-3 sentences...]` template text
 4. **Normalize Formatting**: Ensures consistent markdown structure
 5. **Validate Structure**: Ensures proper section headers and Sources section
+6. **Truncate After Sources**: Removes any text after the Sources section to prevent thinking leakage
+7. **Deduplicate Sources**: Combines duplicate source files and consolidates page numbers
 
-This ensures users see clean, professional responses without model "thinking out loud".
+This ensures users see clean, professional responses without model "thinking out loud" - similar to how industry AI assistants (like Cursor AI) process internally but only show final answers.
+
+### Frontend Loading Indicator
+
+**Location**: `meetara-ui/src/components/LoadingIndicator.tsx`
+
+The frontend displays a "me²TARA Thinking" indicator with user-friendly progress steps:
+
+| Step | Icon | Label | Backend Process |
+|------|------|-------|-----------------|
+| 1 | 🔍 | Knowledge Search | Domain detection + Vector similarity search |
+| 2 | 📚 | Expert Sources | Retrieve top-k relevant document chunks |
+| 3 | 🧠 | Analysis | LLM processes context + question |
+| 4 | ✨ | Response | Format and return structured answer |
+
+**Rotating Messages** (every 2.5 seconds):
+- "Understanding your question"
+- "Searching me²TARA knowledge base"
+- "Finding relevant information"
+- "Analyzing expert sources"
+- "Preparing personalized response"
+
+This provides users with a sense of progress without exposing technical jargon.
 
 ### Model Selection API
 
@@ -969,8 +997,8 @@ curl http://localhost:8000/api/vectorstore/general_health
 
 ---
 
-**Last Updated**: November 2025  
-**Version**: 1.0.0
+**Last Updated**: December 2025  
+**Version**: 1.1.0
 
 For questions or contributions, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
