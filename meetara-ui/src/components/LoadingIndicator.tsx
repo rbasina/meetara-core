@@ -9,26 +9,31 @@ interface LoadingIndicatorProps {
   className?: string
 }
 
-// me²TARA-specific thinking messages (user-friendly, no technical jargon)
-const thinkingMessages = [
-  "Understanding your question",
-  "Searching me²TARA knowledge base",
-  "Finding relevant information",
-  "Analyzing expert sources",
-  "Preparing personalized response",
+// Progress steps shown during me²TARA thinking (icon + short label)
+const progressSteps = [
+  { icon: Search, label: "Knowledge Search" },
+  { icon: BookOpen, label: "Expert Sources" },
+  { icon: Brain, label: "Analysis" },
+  { icon: Sparkles, label: "Response" },
 ]
 
 export default function LoadingIndicator({ 
   variant = 'default',
   className 
 }: LoadingIndicatorProps) {
-  const [messageIndex, setMessageIndex] = useState(0)
+  const [currentStep, setCurrentStep] = useState(0)
   
-  // Rotate through thinking messages
+  // Progress through steps sequentially (synchronized message + icon)
   useEffect(() => {
     const interval = setInterval(() => {
-      setMessageIndex((prev) => (prev + 1) % thinkingMessages.length)
-    }, 2500) // Change message every 2.5 seconds
+      setCurrentStep((prev) => {
+        // Move to next step, stay at last step when reached
+        if (prev < progressSteps.length - 1) {
+          return prev + 1
+        }
+        return prev // Stay at "Response" step
+      })
+    }, 6000) // Move to next step every 6 seconds
     
     return () => clearInterval(interval)
   }, [])
@@ -46,21 +51,16 @@ export default function LoadingIndicator({
             </div>
             
             {/* me²TARA Thinking Text */}
-            <div className="flex flex-col">
-              <span className="text-base font-semibold text-foreground">
-                me²TARA Thinking
-              </span>
-              <span className="text-xs text-muted-foreground animate-fade-in-out">
-                {thinkingMessages[messageIndex]}
-              </span>
-            </div>
+            <span className="text-base font-semibold text-foreground">
+              me²TARA Thinking
+            </span>
             
             <TypingDots />
           </div>
           
-          {/* Progress Indicator - aligned with text (40px icon + 12px gap = 52px) */}
+          {/* Progress Indicator - SYNCHRONIZED with message above */}
           <div className="ml-[52px] flex items-center gap-2 text-xs text-muted-foreground">
-            <ThinkingProgress />
+            <ThinkingProgress currentStep={currentStep} />
           </div>
         </div>
       </div>
@@ -79,53 +79,43 @@ function TypingDots() {
   )
 }
 
-// Thinking progress animation - shows me²TARA processing steps (user-friendly)
-function ThinkingProgress() {
-  const [step, setStep] = useState(0)
-  const steps = [
-    { icon: Search, label: "Knowledge Search" },
-    { icon: BookOpen, label: "Expert Sources" },
-    { icon: Brain, label: "Analysis" },
-    { icon: Sparkles, label: "Response" },
-  ]
-  
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setStep((prev) => Math.min(prev + 1, steps.length - 1))
-    }, 8000) // Move to next step every 8 seconds
-    
-    return () => clearInterval(interval)
-  }, [])
+// Thinking progress animation - shows icon + message for active step
+function ThinkingProgress({ currentStep }: { currentStep: number }) {
+  const currentStepData = progressSteps[currentStep]
+  const Icon = currentStepData.icon
   
   return (
-    <div className="flex items-center gap-1">
-      {steps.map((s, i) => {
-        const Icon = s.icon
-        const isActive = i === step
-        const isComplete = i < step
-        
-        return (
-          <div 
-            key={s.label}
-            className={cn(
-              "flex items-center gap-1 px-2 py-1 rounded-full transition-all duration-300",
-              isActive && "bg-primary/10 text-primary",
-              isComplete && "text-green-500",
-              !isActive && !isComplete && "text-muted-foreground/50"
-            )}
-          >
-            <Icon className={cn(
-              "w-3 h-3",
-              isActive && "animate-pulse"
-            )} />
-            {isActive && (
-              <span className="text-[10px] font-medium animate-fade-in">
-                {s.label}
-              </span>
-            )}
-          </div>
-        )
-      })}
+    <div className="flex items-center gap-2">
+      {/* Show all step icons with completion status */}
+      <div className="flex items-center gap-1">
+        {progressSteps.map((s, i) => {
+          const StepIcon = s.icon
+          const isActive = i === currentStep
+          const isComplete = i < currentStep
+          
+          return (
+            <div 
+              key={i}
+              className={cn(
+                "w-6 h-6 rounded-full flex items-center justify-center transition-all duration-300",
+                isActive && "bg-primary/20 text-primary",
+                isComplete && "bg-green-500/20 text-green-500",
+                !isActive && !isComplete && "text-muted-foreground/40"
+              )}
+            >
+              <StepIcon className={cn(
+                "w-3 h-3",
+                isActive && "animate-pulse"
+              )} />
+            </div>
+          )
+        })}
+      </div>
+      
+      {/* Show current step label */}
+      <span className="text-xs text-muted-foreground animate-fade-in">
+        {currentStepData.label}
+      </span>
     </div>
   )
 }

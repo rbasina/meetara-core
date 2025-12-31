@@ -66,16 +66,16 @@ export default function ChatMessage({
   }
 
   const getConfidenceClass = (confidence: number) => {
-    if (confidence >= 0.8) return 'badge-success'
-    if (confidence >= 0.6) return 'badge-warning'
-    if (confidence >= 0.4) return 'badge-secondary'
+    if (confidence >= 0.6) return 'badge-success'
+    if (confidence >= 0.4) return 'badge-warning'
+    if (confidence >= 0.25) return 'badge-secondary'
     return 'badge-muted'
   }
 
   const getConfidenceLabel = (confidence: number) => {
-    if (confidence >= 0.8) return 'High match'
-    if (confidence >= 0.6) return 'Good match'
-    if (confidence >= 0.4) return 'Partial match'
+    if (confidence >= 0.6) return 'Excellent match'
+    if (confidence >= 0.4) return 'Good match'
+    if (confidence >= 0.25) return 'Relevant'
     return 'General knowledge'
   }
 
