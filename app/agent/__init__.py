@@ -2,18 +2,12 @@
 LangChain Agent and Tools system for Meetara Core.
 
 This module provides the agentic AI capabilities with tool-based orchestration
-for multi-domain assistance with emotion-aware responses.
+for multi-domain knowledge-based assistance.
 """
 
 from .planner import MeetaraAgent, create_meetara_agent
 from .mcp_router import MCPRouter, create_mcp_router
-from .tools import (
-    AdapterSelectorTool,
-    TranslationTool,
-    SpeechTool,
-    EmotionTool,
-    FaceEmotionTool
-)
+from .tools import AdapterSelectorTool
 
 __all__ = [
     "MeetaraAgent",
@@ -21,8 +15,4 @@ __all__ = [
     "MCPRouter", 
     "create_mcp_router",
     "AdapterSelectorTool",
-    "TranslationTool",
-    "SpeechTool",
-    "EmotionTool",
-    "FaceEmotionTool"
-] 
+]
