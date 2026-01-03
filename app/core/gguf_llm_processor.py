@@ -11,8 +11,46 @@ from collections import OrderedDict
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from llama_cpp import Llama
-from llama_cpp.llama_speculative import LlamaPromptLookupDecoding
+from llama_cpp.llama_speculative import LlamaPromptLookupDecoding, LlamaDraftModel
 from huggingface_hub import hf_hub_download, snapshot_download
+import numpy as np
+import numpy.typing as npt
+from typing import Any as TypingAny
+
+
+class SafePromptLookupDecoding(LlamaDraftModel):
+    """
+    A safer wrapper around LlamaPromptLookupDecoding that handles edge cases.
+    
+    The original LlamaPromptLookupDecoding can cause broadcasting errors in llama-cpp-python
+    when no n-gram matches are found (returns empty array). This wrapper ensures we always
+    return a valid array that won't cause issues.
+    """
+    
+    def __init__(self, max_ngram_size: int = 3, num_pred_tokens: int = 10, min_input_length: int = 50):
+        self.inner = LlamaPromptLookupDecoding(
+            max_ngram_size=max_ngram_size,
+            num_pred_tokens=num_pred_tokens
+        )
+        self.min_input_length = min_input_length  # Don't try speculative decoding on short inputs
+        self.max_ngram_size = max_ngram_size
+        self.num_pred_tokens = num_pred_tokens
+    
+    def __call__(
+        self, input_ids: npt.NDArray[np.intc], /, **kwargs: TypingAny
+    ) -> npt.NDArray[np.intc]:
+        # Skip speculative decoding for short inputs (not enough context for n-gram matching)
+        if len(input_ids) < self.min_input_length:
+            return np.array([], dtype=np.intc)
+        
+        try:
+            result = self.inner(input_ids, **kwargs)
+            return result
+        except Exception:
+            # If anything goes wrong, return empty array (no speculation)
+            return np.array([], dtype=np.intc)
+
+
 from app.core.logger import agent_logger
 from app.core.config import Settings
 from app.core.domain_categorizer import get_domain_categorizer  # ✅ Optimized domain categorization
@@ -270,13 +308,15 @@ class MeetaraGGUFProcessor:
             # ✅ SPECULATIVE DECODING - Prompt Lookup Decoding
             # Uses n-gram matching from the prompt/context to predict multiple tokens at once
             # Perfect for RAG scenarios where context contains similar patterns to the expected output
+            # NOTE: Using SafePromptLookupDecoding wrapper to handle edge cases in llama-cpp-python
             draft_model = None
             if self.config.enable_speculative_decoding:
-                draft_model = LlamaPromptLookupDecoding(
+                draft_model = SafePromptLookupDecoding(
                     max_ngram_size=self.config.speculative_max_ngram_size,
-                    num_pred_tokens=self.config.speculative_num_pred_tokens
+                    num_pred_tokens=self.config.speculative_num_pred_tokens,
+                    min_input_length=100  # Need at least 100 tokens for meaningful n-gram matching
                 )
-                agent_logger.info(f"⚡ Speculative decoding enabled: {self.config.speculative_max_ngram_size}-gram, {self.config.speculative_num_pred_tokens} tokens lookahead")
+                agent_logger.info(f"⚡ Speculative decoding enabled: {self.config.speculative_max_ngram_size}-gram, {self.config.speculative_num_pred_tokens} tokens lookahead (safe mode)")
             
             self.models[model_type] = Llama(
                 model_path=str(self.model_paths[model_type]),
@@ -349,16 +389,52 @@ class MeetaraGGUFProcessor:
             # Higher temperature causes more sampling iterations
             temperature = min(self.config.llm_temperature, 0.7)  # Cap at 0.7 for speed
             
-            response = self.models[model_type](
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=self.config.local_llm_top_p,
-                top_k=self.config.local_llm_top_k,
-                # Note: Removed "**Sources**" from stop tokens - we WANT the model to generate Sources section
-                stop=["</s>", "<|im_end|>", "\n\nHuman:", "\n\nAssistant:", "(End of response)", "Final output:", "🛑", "STOP"],
-                echo=False
-            )
+            # ✅ LLM generation with retry for speculative decoding errors
+            try:
+                response = self.models[model_type](
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=self.config.local_llm_top_p,
+                    top_k=self.config.local_llm_top_k,
+                    # Note: Removed "**Sources**" from stop tokens - we WANT the model to generate Sources section
+                    stop=["</s>", "<|im_end|>", "\n\nHuman:", "\n\nAssistant:", "(End of response)", "Final output:", "🛑", "STOP"],
+                    echo=False
+                )
+            except Exception as gen_error:
+                # Check if this is a speculative decoding broadcasting error
+                error_str = str(gen_error)
+                if "broadcast" in error_str.lower() or "shape" in error_str.lower():
+                    agent_logger.warning(f"⚠️ Speculative decoding error detected: {error_str[:100]}...")
+                    agent_logger.info("🔄 Reloading model WITHOUT speculative decoding and retrying...")
+                    
+                    # Reload the model without speculative decoding
+                    if model_type in self.models:
+                        del self.models[model_type]
+                    
+                    # Temporarily disable speculative decoding
+                    original_spec_setting = self.config.enable_speculative_decoding
+                    self.config.enable_speculative_decoding = False
+                    
+                    # Reload model
+                    if not self._load_model_lazy(model_type):
+                        self.config.enable_speculative_decoding = original_spec_setting
+                        raise gen_error  # Re-raise if reload fails
+                    
+                    # Retry generation
+                    response = self.models[model_type](
+                        prompt,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=self.config.local_llm_top_p,
+                        top_k=self.config.local_llm_top_k,
+                        stop=["</s>", "<|im_end|>", "\n\nHuman:", "\n\nAssistant:", "(End of response)", "Final output:", "🛑", "STOP"],
+                        echo=False
+                    )
+                    agent_logger.info("✅ Retry successful without speculative decoding")
+                    # Keep speculative decoding disabled for future calls
+                else:
+                    raise  # Re-raise non-speculative-decoding errors
             
             generation_time = time.time() - start_time
             
