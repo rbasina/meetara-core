@@ -112,8 +112,10 @@ class Settings(BaseSettings):
     # Speculative Decoding Configuration
     # Enables faster inference by predicting multiple tokens at once
     # Uses prompt lookup decoding (n-gram matching) - perfect for RAG scenarios
+    # NOTE: Currently disabled due to compatibility issue with some llama-cpp-python versions
+    # Error: "could not broadcast input array from shape (X,) into shape (0,)"
     enable_speculative_decoding: bool = Field(
-        default=True,
+        default=False,  # Disabled until compatibility fix
         env="ENABLE_SPECULATIVE_DECODING"
     )
     speculative_max_ngram_size: int = Field(
