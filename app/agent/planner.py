@@ -24,14 +24,7 @@ from app.utils.image_path_utils import normalize_image_path_to_url  # ✅ Optimi
 from app.services.image_descriptor import get_image_descriptor
 from app.services.image_generator import get_image_generator
 from app.core.llm_processor import get_llm_processor  # New import
-from app.agent.tools import (
-    AdapterSelectorTool,
-    TranslationTool,
-    SpeechTool,
-    EmotionTool,
-    FaceEmotionTool
-)
-from app.agent.mcp_router import get_mcp_router
+from app.agent.tools import AdapterSelectorTool
 from app.rag.domain_retrievers import get_domain_retriever
 
 
@@ -447,22 +440,6 @@ class MeetaraAgent:
             method="keyword_first"
         )
     
-    async def _maybe_get_emotion_context(
-        self,
-        query: str,
-        detected_domain: str,
-        context: Optional[Dict[str, Any]]
-    ) -> Optional[Dict[str, Any]]:
-        if not context or not context.get("emotion"):
-            return None
-        
-        mcp_router = get_mcp_router()
-        return await mcp_router.process_with_emotion_context(
-            query=query,
-            domain=detected_domain,
-            detected_emotion=context["emotion"]
-        )
-    
     def _generate_images_from_context(
         self,
         query: str,
@@ -565,10 +542,6 @@ class MeetaraAgent:
         """Create and configure all available tools."""
         tools = [
             AdapterSelectorTool(),
-            TranslationTool(),
-            SpeechTool(),
-            EmotionTool(),
-            FaceEmotionTool(),
         ]
         agent_logger.info(f"Created {len(tools)} tools for agent")
         return tools
@@ -711,7 +684,6 @@ class MeetaraAgent:
             if is_verbose():
                 agent_logger.info(f"⏱️ Domain detection & retrieval took {time.time() - stage_start:.2f}s")
             stage_start = time.time()
-            emotion_context = await self._maybe_get_emotion_context(query, detection.domain, context)
             
             domain_context = detection.documents
             # For fine-tuning: optionally bypass relevance filtering to use ALL retrieved docs
@@ -782,7 +754,7 @@ class MeetaraAgent:
             response_dict = {
                 "response": response,
                 "domain": applied_domain,
-                "emotion_context": emotion_context,
+                "emotion_context": None,  # Emotion detection decommissioned
                 "tool_calls": [],
                 "confidence": detection.confidence,
                 "images": images,  # ✅ Include images if available (always initialized)

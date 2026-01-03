@@ -2,7 +2,7 @@
 Meetara Core - Main FastAPI Application
 
 A production-ready, modular LangChain-based RAG assistant backend
-with emotion-aware responses and tool-based agent orchestration.
+with knowledge-focused responses and tool-based agent orchestration.
 """
 import os
 import sys
@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from app.core.config import settings
 from app.core.logger import setup_logging, api_logger
-from app.api import chat_router, emotion_router, upload_router, image_generation_router, vectorstore_router
+from app.api import chat_router, upload_router, image_generation_router, vectorstore_router
 from app.api.models import router as models_router
 
 
@@ -44,7 +44,6 @@ async def lifespan(app: FastAPI):
     
     # Create necessary directories
     settings.vectorstore_path.mkdir(parents=True, exist_ok=True)
-    settings.emotion_models_path.mkdir(parents=True, exist_ok=True)
     
     # Pre-warm domain retrievers for faster first queries (runs in background)
     try:
@@ -83,7 +82,6 @@ app.add_middleware(
 
 # Include routers
 app.include_router(chat_router, prefix="/api")
-app.include_router(emotion_router, prefix="/api")
 app.include_router(upload_router, prefix="/api")
 app.include_router(image_generation_router, prefix="/api")
 app.include_router(vectorstore_router, prefix="/api")
@@ -138,13 +136,6 @@ async def health_check():
             components["agent"] = "healthy" if agent else "not_initialized"
         except Exception as e:
             components["agent"] = f"error: {str(e)}"
-        
-        # Check emotion tools
-        try:
-            from app.agent.tools import EmotionTool, FaceEmotionTool
-            components["emotion_tools"] = "healthy"
-        except Exception as e:
-            components["emotion_tools"] = f"error: {str(e)}"
         
         # Determine overall status
         overall_status = "healthy"
