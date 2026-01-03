@@ -16,7 +16,7 @@ const jetbrainsMono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: 'me²TARA - Knowledge-Based AI Assistant',
-  description: 'Intelligent AI assistant with domain-specific knowledge retrieval, emotion-aware responses, and multi-language support.',
+  description: 'Intelligent AI assistant with domain-specific knowledge retrieval and expert document analysis.',
   keywords: ['AI', 'RAG', 'Knowledge Assistant', 'LLM', 'Document Analysis'],
   authors: [{ name: 'Meetara Lab' }],
   icons: {
