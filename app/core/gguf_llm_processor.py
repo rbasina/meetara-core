@@ -11,6 +11,7 @@ from collections import OrderedDict
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 from llama_cpp import Llama
+from llama_cpp.llama_speculative import LlamaPromptLookupDecoding
 from huggingface_hub import hf_hub_download, snapshot_download
 from app.core.logger import agent_logger
 from app.core.config import Settings
@@ -266,17 +267,30 @@ class MeetaraGGUFProcessor:
             except ImportError:
                 pass  # No torch, stay on CPU
             
+            # ✅ SPECULATIVE DECODING - Prompt Lookup Decoding
+            # Uses n-gram matching from the prompt/context to predict multiple tokens at once
+            # Perfect for RAG scenarios where context contains similar patterns to the expected output
+            draft_model = None
+            if self.config.enable_speculative_decoding:
+                draft_model = LlamaPromptLookupDecoding(
+                    max_ngram_size=self.config.speculative_max_ngram_size,
+                    num_pred_tokens=self.config.speculative_num_pred_tokens
+                )
+                agent_logger.info(f"⚡ Speculative decoding enabled: {self.config.speculative_max_ngram_size}-gram, {self.config.speculative_num_pred_tokens} tokens lookahead")
+            
             self.models[model_type] = Llama(
                 model_path=str(self.model_paths[model_type]),
                 n_ctx=self.config.llm_context_length,
                 n_threads=n_threads,
                 n_batch=n_batch,  # ✅ Parallel token processing
                 n_gpu_layers=n_gpu_layers,  # ✅ GPU acceleration if available
+                draft_model=draft_model,  # ✅ Speculative decoding
                 verbose=False
             )
             load_time = time.time() - start_time
             device_info = "GPU (CUDA)" if n_gpu_layers != 0 else f"CPU ({n_threads} threads)"
-            agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s on {device_info}")
+            spec_info = " + Speculative Decoding" if draft_model else ""
+            agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s on {device_info}{spec_info}")
             return True
         except Exception as e:
             agent_logger.error(f"Failed to load {model_type} model: {e}")

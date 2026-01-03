@@ -109,6 +109,22 @@ class Settings(BaseSettings):
     local_llm_top_p: float = Field(default=0.9, env="LOCAL_LLM_TOP_P")
     local_llm_top_k: int = Field(default=50, env="LOCAL_LLM_TOP_K")
     
+    # Speculative Decoding Configuration
+    # Enables faster inference by predicting multiple tokens at once
+    # Uses prompt lookup decoding (n-gram matching) - perfect for RAG scenarios
+    enable_speculative_decoding: bool = Field(
+        default=True,
+        env="ENABLE_SPECULATIVE_DECODING"
+    )
+    speculative_max_ngram_size: int = Field(
+        default=3,  # Look for 3-gram matches in context
+        env="SPECULATIVE_MAX_NGRAM_SIZE"
+    )
+    speculative_num_pred_tokens: int = Field(
+        default=10,  # Predict up to 10 tokens at a time
+        env="SPECULATIVE_NUM_PRED_TOKENS"
+    )
+    
     # Speech Processing
     stt_model: str = Field(default="base", env="STT_MODEL")  # faster-whisper model
     tts_voice: str = Field(default="en-US-JennyNeural", env="TTS_VOICE")
