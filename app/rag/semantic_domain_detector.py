@@ -115,7 +115,7 @@ class SemanticDomainDetector:
                     )
                     
                     if results_with_scores:
-                        agent_logger.info(f"   {domain}: Got {len(results_with_scores)} results from vectorstore")
+                        agent_logger.debug(f"   {domain}: Got {len(results_with_scores)} results from vectorstore")
                         
                         # Convert distance to similarity score
                         # ChromaDB can use different distance metrics:
@@ -142,7 +142,7 @@ class SemanticDomainDetector:
                                 
                                 # Log first result for debugging
                                 if i == 0:
-                                    agent_logger.info(
+                                    agent_logger.debug(
                                         f"      {domain}: distance={distance:.4f} "
                                         f"({'cosine-like' if is_cosine_like else 'L2-like'}), "
                                         f"similarity={similarity:.4f}"
@@ -162,17 +162,17 @@ class SemanticDomainDetector:
                             avg_score = sum(score for _, score in similarity_results) / len(similarity_results)
                             domain_scores[domain] = avg_score
                             
-                            agent_logger.info(
+                            agent_logger.debug(
                                 f"   {domain}: {len(similarity_results)}/{len(results_with_scores)} results passed threshold, "
                                 f"avg similarity: {avg_score:.3f}"
                             )
                         else:
-                            agent_logger.warning(
+                            agent_logger.debug(
                                 f"   {domain}: All {len(results_with_scores)} results filtered by threshold "
-                                f"(min={min_similarity_score:.3f}). Max similarity: {max(1.0/(1.0+d) for _, d in results_with_scores):.3f}"
+                                f"(min={min_similarity_score:.3f})"
                             )
                     else:
-                        agent_logger.warning(f"   {domain}: No results from vectorstore (might be empty)")
+                        agent_logger.debug(f"   {domain}: No results from vectorstore (might be empty)")
                     
                 except Exception as e:
                     agent_logger.warning(f"Failed to search domain {domain}: {e}")

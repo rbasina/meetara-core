@@ -204,39 +204,12 @@ me²TARA uses **Retrieval-Augmented Generation (RAG)** to retrieve relevant info
             "images_count": len(result.get("images", []))  # ✅ Log image count
         })
         
-        # ✅ Debug: Log image URLs if present
+        # Log image count (debug level for details)
         if result.get("images"):
-            api_logger.info(f"📷 Returning {len(result['images'])} images in API response")
-            for i, img in enumerate(result["images"]):
-                api_logger.info(f"   Image {i+1}: url={img.get('image_url', 'NO URL')}, path={img.get('image_path', 'NO PATH')}")
-        else:
-            api_logger.debug(f"   No images in result (result keys: {list(result.keys())})")
-        
-        # ✅ CRITICAL: Verify images are in result before creating response
-        images_in_result = result.get("images")
-        if images_in_result and len(images_in_result) > 0:
-            api_logger.info(f"🔍 DEBUG: result dict contains 'images' key with {len(images_in_result)} items")
-            api_logger.info(f"🔍 DEBUG: First image in result: {images_in_result[0] if images_in_result else 'N/A'}")
-        else:
-            images_status = "missing" if "images" not in result else ("empty list" if images_in_result == [] else f"None/null")
-            api_logger.warning(f"🔍 DEBUG: result dict 'images' is {images_status}. Available keys: {list(result.keys())}")
+            api_logger.debug(f"📷 Returning {len(result['images'])} images in API response")
         
         # Create response
         chat_response = ChatResponse(**result)
-        
-        # ✅ Final verification: Log what's being returned
-        if chat_response.images:
-            api_logger.info(f"✅ ChatResponse created with {len(chat_response.images)} images")
-            api_logger.info(f"🔍 DEBUG: First image URL in ChatResponse: {chat_response.images[0].get('image_url', 'NO URL') if chat_response.images else 'N/A'}")
-        else:
-            api_logger.warning(f"⚠️ ChatResponse created with 0 images (even though result may have had images)")
-        
-        # ✅ Serialize to dict to verify what's actually being sent
-        response_dict = chat_response.model_dump()
-        if response_dict.get("images"):
-            api_logger.info(f"✅ Response dict has {len(response_dict['images'])} images")
-        else:
-            api_logger.warning(f"⚠️ Response dict has NO images field!")
         
         return chat_response
         

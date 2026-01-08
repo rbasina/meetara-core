@@ -1035,11 +1035,11 @@ class MeetaraAgent:
             # This helps include related figures that appear on nearby pages in any document type
             # Skip if image extraction is disabled (fine-tuning mode)
             if settings.enable_image_extraction_during_query and relevant_pages and document_filenames and len(associated_images) < 3:
-                agent_logger.info(f"🔍 Looking for images on adjacent pages (±2) for relevant pages: {sorted(relevant_pages)} (current images: {len(associated_images)})")
+                agent_logger.debug(f"🔍 Looking for images on adjacent pages (±2) for relevant pages: {sorted(relevant_pages)} (current images: {len(associated_images)})")
                 # ✅ MULTI-PDF: Log which pages belong to which PDF
                 if pages_by_filename:
                     for filename_base, pages in pages_by_filename.items():
-                        agent_logger.info(f"   PDF {filename_base}: pages {sorted(pages)}")
+                        agent_logger.debug(f"   PDF {filename_base}: pages {sorted(pages)}")
                 adjacent_images = self._find_adjacent_page_images(
                     relevant_pages=relevant_pages,
                     document_filenames=document_filenames,
@@ -1126,16 +1126,25 @@ class MeetaraAgent:
                     scored_images.sort(key=lambda x: (x[0], -x[1] if isinstance(x[1], (int, float)) else 0), reverse=True)
                     
                     # Take top 5 most relevant images (by semantic + proximity score)
-                    limited_adjacent = [img for score, page, img in scored_images[:5]]
-                    agent_logger.info(f"✅ Found {len(adjacent_images)} adjacent images, ranked by semantic relevance + proximity, selected top {len(limited_adjacent)} most relevant")
+                    # ✅ CRITICAL: Only include images with semantic score > 0 (actually relevant to query)
+                    # This prevents unrelated images from adjacent pages being included
+                    relevant_adjacent = [(score, page, img) for score, page, img in scored_images if score > 5]  # Require at least 1 semantic match
+                    if not relevant_adjacent:
+                        # Fallback: if no semantic matches, take images with proximity score only (but fewer)
+                        relevant_adjacent = scored_images[:2]  # Only take 2 if no semantic match
+                    else:
+                        relevant_adjacent = relevant_adjacent[:5]  # Take top 5 semantic matches
+                    
+                    limited_adjacent = [img for score, page, img in relevant_adjacent]
+                    agent_logger.debug(f"✅ Found {len(adjacent_images)} adjacent images, {len(limited_adjacent)} passed relevance filter")
                     if limited_adjacent:
-                        top_scores = [score for score, _, _ in scored_images[:len(limited_adjacent)]]
-                        agent_logger.info(f"   Top image scores: {top_scores}")
+                        top_scores = [score for score, _, _ in relevant_adjacent]
+                        agent_logger.debug(f"   Top image scores: {top_scores}")
                     associated_images.extend(limited_adjacent)
                 else:
-                    agent_logger.info(f"⚠️ No adjacent page images found for pages {sorted(relevant_pages)}")
+                    agent_logger.debug(f"⚠️ No adjacent page images found for pages {sorted(relevant_pages)}")
             elif len(associated_images) >= 3:
-                agent_logger.info(f"⏭️ Skipping adjacent page search: already have {len(associated_images)} relevant images")
+                agent_logger.debug(f"⏭️ Skipping adjacent page search: already have {len(associated_images)} relevant images")
             
             if associated_images:
                 associated_images = normalize_page_image_captions(associated_images)
@@ -1152,17 +1161,17 @@ class MeetaraAgent:
             )
             
             # Return response with images (if extraction is enabled)
-            agent_logger.info(f"📊 Summary: Processed {len(context_docs)} documents, found {len(associated_images)} images")
+            agent_logger.debug(f"📊 Summary: Processed {len(context_docs)} documents, found {len(associated_images)} images")
             if settings.enable_image_extraction_during_query and associated_images:
-                # Limit total images to top 8 most relevant (to avoid overwhelming the UI)
-                max_images = 8
+                # Limit total images to top 5 most relevant (to avoid overwhelming the UI)
+                max_images = 5
                 if len(associated_images) > max_images:
-                    agent_logger.info(f"⚠️ Limiting images from {len(associated_images)} to top {max_images} most relevant")
+                    agent_logger.debug(f"⚠️ Limiting images from {len(associated_images)} to top {max_images} most relevant")
                     associated_images = associated_images[:max_images]
                 
-                agent_logger.info(f"✅ Returning {len(associated_images)} images with response")
-                for i, img in enumerate(associated_images):
-                    agent_logger.info(f"   Image {i+1}: {img.get('image_url', 'NO URL')}")
+                agent_logger.info(f"📷 Returning {len(associated_images)} images with response")
+                for i, img in enumerate(associated_images[:3]):  # Only log first 3
+                    agent_logger.debug(f"   Image {i+1}: {img.get('image_url', 'NO URL')}")
                 # Return dict with response and images
                 return {
                     "response": response,
@@ -1266,7 +1275,7 @@ class MeetaraAgent:
                                 adjacent_pages_for_pdf.add(page + offset)
                     if adjacent_pages_for_pdf:
                         adjacent_pages_by_filename[filename_base] = adjacent_pages_for_pdf
-                        agent_logger.info(f"   PDF {filename_base}: checking {len(adjacent_pages_for_pdf)} adjacent pages: {sorted(adjacent_pages_for_pdf)}")
+                        agent_logger.debug(f"   PDF {filename_base}: checking {len(adjacent_pages_for_pdf)} adjacent pages: {sorted(adjacent_pages_for_pdf)}")
             else:
                 # Fallback: If no mapping provided, use old logic (but less accurate)
                 adjacent_pages = set()
@@ -1368,7 +1377,7 @@ class MeetaraAgent:
                                                                 # Only require that image has content
                                                                 if image_has_content(img_info):
                                                                     adjacent_images_from_store.append(img_info)
-                                                                    agent_logger.info(f"   ✅ Found adjacent page image with metadata: {image_url} (page {page_num}, figure: {img_info.get('figure_number', 'N/A')})")
+                                                                    agent_logger.debug(f"   ✅ Found adjacent page image with metadata: {image_url} (page {page_num}, figure: {img_info.get('figure_number', 'N/A')})")
                                                                     break  # Found image, move to next result
                                                 break  # Found associated_images, move to next page
                                 else:
@@ -1424,7 +1433,7 @@ class MeetaraAgent:
                                                                 # Only require that image has content
                                                                 if image_has_content(img_info):
                                                                     adjacent_images_from_store.append(img_info)
-                                                                    agent_logger.info(f"   ✅ Found adjacent page image with metadata: {image_url} (page {page_num}, figure: {img_info.get('figure_number', 'N/A')})")
+                                                                    agent_logger.debug(f"   ✅ Found adjacent page image with metadata: {image_url} (page {page_num}, figure: {img_info.get('figure_number', 'N/A')})")
                                                                 break
                                                 break
                             except Exception as e:
@@ -1538,7 +1547,7 @@ class MeetaraAgent:
                         # Only require that image has content
                         if image_has_content(img_info):
                             adjacent_images.append(img_info)
-                            agent_logger.info(f"   ✅ Found adjacent page image: {image_url} (page {page_num})")
+                            agent_logger.debug(f"   ✅ Found adjacent page image: {image_url} (page {page_num})")
                         else:
                             agent_logger.debug(f"   ⏭️ Skipped adjacent page image: no content (page {page_num})")
                     
