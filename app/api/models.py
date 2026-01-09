@@ -169,6 +169,9 @@ async def switch_model(request: ModelSwitchRequest):
         # The processor will use this on next request
         processor = get_meetara_gguf_processor()
         
+        if not processor:
+            raise HTTPException(status_code=503, detail="Model processor not available")
+        
         # Get HF info for the model
         hf_info = config_loader.get_model_hf_info(model_id)
         

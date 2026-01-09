@@ -154,6 +154,142 @@ PLACEHOLDER_PATTERNS = [
 # Source file pattern (for truncation after sources)
 SOURCE_FILE_PATTERN = re.compile(r'[-•]\s*[^\n]+\.(?:pdf|doc|docx|txt)[^\n]*', re.IGNORECASE)
 
+# ============================================================
+# RESPONSE ENDING CLEANUP PATTERNS (for aggressive end-of-response filtering)
+# ============================================================
+# Incomplete control tokens at end (like <|, <|im, <|im_, etc.)
+INCOMPLETE_TOKEN_PATTERN = re.compile(r'<\|[^>]*$', re.IGNORECASE)
+# Incomplete directives (only /think or /no_think patterns, not fractions)
+INCOMPLETE_DIRECTIVE_PATTERN = re.compile(r'/(?:no_)?think\s*$', re.IGNORECASE)
+# Trailing role labels (Human:, User:, Assistant:)
+TRAILING_ROLE_PATTERN = re.compile(r'\.\s*(?:Human|User|Assistant|System):\s*[^.!?]*$', re.IGNORECASE)
+# Trailing prompt tokens
+TRAILING_PROMPT_PATTERN = re.compile(r'<\|im_(?:start|end)\|>[^.!?]*$', re.IGNORECASE)
+# Long brackets pattern (pre-compiled for efficiency)
+LONG_BRACKETS_PATTERN = re.compile(r'\[[^\]]{10,}\]')
+# Empty bullet pattern
+EMPTY_BULLET_PATTERN = re.compile(r'^-\s*$', re.MULTILINE)
+EMPTY_NUMBERED_PATTERN = re.compile(r'^\d+\.\s*$', re.MULTILINE)
+# Empty sections pattern
+EMPTY_SECTION_PATTERN = re.compile(r'\*\*[^*]+\*\*\s*\n{2,}(?=\*\*[^*]+\*\*)', re.MULTILINE)
+# Multiple newlines pattern
+MULTIPLE_NEWLINES_PATTERN = re.compile(r'\n{3,}')
+
+# ============================================================
+# FROZENSETS FOR FAST MEMBERSHIP TESTS
+# ============================================================
+# Thinking indicators (converted to frozenset for O(1) lookup)
+THINKING_INDICATORS = frozenset([
+    'the user', 'i need to', 'i should', 'let me', "i'll", 'first step',
+    'second step', 'third step', 'for the core', 'for the effective',
+    'for the emotional', 'for the physical', 'for the social', 'for the practical',
+    'should include', 'should cover', 'should mention', 'might be',
+    'could be', 'the query', 'this question', 'assessment and tracking',
+    'i know that', 'i should mention', 'the context mentions', 'according to the provided',
+    'the assistant could', 'the assistant must', 'sources should list',
+    'the symptoms mentioned', 'the symptoms include', 'i should present',
+    'this section might', 'this section needs', 'maybe include', 'perhaps mention',
+    'the information shows', 'the data indicates', 'i need to find'
+])
+
+# Thinking starters (for quick prefix check)
+THINKING_STARTERS = frozenset([
+    'okay', 'so ', 'now ', 'next', 'also', 'for the', 'the user', 
+    'i know', 'i should', 'let me start'
+])
+
+# Planning words for counting
+PLANNING_WORDS = frozenset(['should', 'could', 'might', 'need to', 'will', 'must'])
+
+# Content markers (for identifying valid content)
+CONTENT_MARKERS = frozenset([
+    '**quick answer', '**', '# ', '## ', '- ', '• ', '•',
+    '1.', '2.', '3.', 'sources',
+    '🎯', '📊', '⚡', '💡', '🤔',
+    'what this means', 'deeper understanding', 'practical steps',
+    'extra tips', 'thoughtful next question'
+])
+
+# Emoji headers
+EMOJI_HEADERS = frozenset(['🎯', '📊', '⚡', '💡', '🤔'])
+
+# Valid short ending words (expanded for conservative truncation)
+VALID_SHORT_ENDINGS = frozenset([
+    'yes', 'no', 'ok', 'okay', 'sure', 'thanks', 'help', 'care', 'diet',
+    'sleep', 'water', 'brain', 'heart', 'dose', 'pain', 'test', 'food',
+    'rest', 'walk', 'yoga', 'calm', 'safe', 'risk', 'stop', 'call', 'seek',
+    'well', 'good', 'best', 'more', 'less', 'high', 'low', 'day', 'week'
+])
+
+# Thinking starters for post-source cleanup
+POST_SOURCE_THINKING_STARTERS = frozenset([
+    'let me', 'i should', 'i need', 'wait,', 'the user', "i'll", 
+    'each section', 'the quick', 'under ', 'also,', 'so i', 'first,', 'then,'
+])
+
+# Pre-compiled final cleanup patterns (last-resort patterns for escaped thinking)
+FINAL_CLEANUP_PATTERNS = [
+    # Sentences starting with meta-commentary
+    re.compile(r'^(?:The user|I should|I need to|Let me|I know that|The context|According to)[^.!?]*[.!?]\s*', re.IGNORECASE | re.MULTILINE),
+    # Sentences with planning language
+    re.compile(r'(?:Tips could include|Common pitfalls|Expert recommendations could be)[^.!?]*[.!?]\s*', re.IGNORECASE),
+    # Self-referential instructions
+    re.compile(r'(?:Sources need to be cited|Avoid any internal|Check for any markdown|Ensure the sections)[^.!?]*[.!?]\s*', re.IGNORECASE),
+    # Incomplete sentences with question marks followed by instructions
+    re.compile(r'\?\s*(?:Make the offer|This plan can help|Would you like me to)[^.!?]*[.!?]?\s*', re.IGNORECASE),
+]
+
+
+def clean_response_ending(text: str) -> str:
+    """Clean incomplete endings and artifacts from LLM response.
+    
+    Handles:
+    - Incomplete control tokens (<|im_end, etc.)
+    - Directive fragments (/no_think, /think)
+    - Hallucinated conversation continuations (Human:, User:)
+    - Trailing incomplete sentences
+    
+    Returns:
+        Cleaned text with proper ending
+    """
+    if not text:
+        return text
+    
+    text = text.strip()
+    original_len = len(text)
+    
+    # Step 1: Remove incomplete control tokens at end
+    text = INCOMPLETE_TOKEN_PATTERN.sub('', text)
+    
+    # Step 2: Remove incomplete directives (only /think or /no_think patterns)
+    text = INCOMPLETE_DIRECTIVE_PATTERN.sub('', text)
+    
+    # Step 3: Remove trailing role labels (Human:, User:, Assistant:)
+    text = TRAILING_ROLE_PATTERN.sub('.', text)
+    
+    # Step 4: Remove trailing prompt tokens
+    text = TRAILING_PROMPT_PATTERN.sub('', text)
+    
+    # Step 5: Check for truly incomplete endings (conservative approach)
+    text = text.strip()
+    if text and text[-1] not in '.!?:;…"\')\]':
+        # Only truncate if we can find a proper sentence ending nearby
+        # Look for last proper sentence ending (within last 100 chars)
+        for i in range(len(text) - 1, max(0, len(text) - 100), -1):
+            if text[i] in '.!?':
+                # Check it's not a decimal or abbreviation
+                if i == len(text) - 1 or text[i + 1] in ' \n':
+                    # Found a proper ending, truncate here
+                    truncated = text[:i + 1].strip()
+                    if len(truncated) > len(text) * 0.8:  # Don't truncate too much
+                        text = truncated
+                    break
+    
+    if len(text) < original_len:
+        agent_logger.debug(f"🧹 Cleaned {original_len - len(text)} chars from response ending")
+    
+    return text
+
 
 class MeetaraGGUFProcessor:
     """GGUF LLM processor using custom fine-tuned Meetara models."""
@@ -643,59 +779,11 @@ class MeetaraGGUFProcessor:
                 if response_text == original_text:
                     break
             
-            # Remove multi-paragraph thinking blocks (more aggressive)
-            # First, normalize line breaks to preserve bullet point lists
-            # Group consecutive lines starting with bullets/dashes/numbers into single paragraphs
-            lines = response_text.split('\n')
-            normalized_lines = []
-            current_bullet_group = []
-            
-            for line in lines:
-                stripped = line.strip()
-                # Check if line is a bullet point or list item
-                is_bullet = (stripped.startswith(('•', '-', '*')) or 
-                            (stripped and stripped[0].isdigit() and '.' in stripped[:3]))
-                
-                if is_bullet:
-                    # If we were collecting a bullet group, add previous content first
-                    if current_bullet_group:
-                        normalized_lines.append('\n'.join(current_bullet_group))
-                        current_bullet_group = []
-                    current_bullet_group.append(line)
-                elif current_bullet_group:
-                    # Continue collecting if line is continuation of bullet (indented or continues previous)
-                    if (stripped and not stripped.startswith(('**', '#')) and 
-                        (line.startswith(' ') or len(stripped) < 50)):  # Likely continuation
-                        current_bullet_group.append(line)
-                    else:
-                        # End of bullet group
-                        normalized_lines.append('\n'.join(current_bullet_group))
-                        current_bullet_group = []
-                        normalized_lines.append(line)
-                else:
-                    normalized_lines.append(line)
-            
-            # Add any remaining bullet group
-            if current_bullet_group:
-                normalized_lines.append('\n'.join(current_bullet_group))
-            
-            # Now split into paragraphs
-            paragraphs = '\n'.join(normalized_lines).split('\n\n')
+            # Remove multi-paragraph thinking blocks (optimized version)
+            # Uses pre-compiled patterns and frozensets for O(1) lookups
+            paragraphs = response_text.split('\n\n')
             clean_paragraphs = []
             found_content = False
-            
-            thinking_indicators = [
-                'the user', 'i need to', 'i should', 'let me', "i'll", 'first step',
-                'second step', 'third step', 'for the core', 'for the effective',
-                'for the emotional', 'for the physical', 'for the social', 'for the practical',
-                'should include', 'should cover', 'should mention', 'might be',
-                'could be', 'the query', 'this question', 'assessment and tracking',
-                'i know that', 'i should mention', 'the context mentions', 'according to the provided',
-                'the assistant could', 'the assistant must', 'sources should list',
-                'the symptoms mentioned', 'the symptoms include', 'i should present',
-                'this section might', 'this section needs', 'maybe include', 'perhaps mention',
-                'the information shows', 'the data indicates', 'i need to find'
-            ]
             
             for para in paragraphs:
                 para_lower = para.lower().strip()
@@ -704,48 +792,44 @@ class MeetaraGGUFProcessor:
                     continue
                 
                 # Check if paragraph is a section header (keep these)
-                # Support both standard **headers** and enhanced template emoji headers (🎯, 📊, ⚡, 💡, 🤔)
                 is_section_header = para_lower.startswith('**') and para_lower.endswith('**')
-                is_emoji_header = any(emoji in para_lower[:10] for emoji in ['🎯', '📊', '⚡', '💡', '🤔'])
+                is_emoji_header = any(emoji in para_lower[:10] for emoji in EMOJI_HEADERS)
                 if is_section_header or is_emoji_header:
                     clean_paragraphs.append(para)
                     found_content = True
                     continue
                 
                 # Check if paragraph contains content markers (keep these)
-                # Support both standard format and enhanced template format
-                # Note: Check for bullet points with or without space after (•text or • text)
                 para_stripped = para_lower.strip()
                 has_bullet_point = (para_stripped.startswith(('•', '-', '*')) or 
                                    (para_stripped and para_stripped[0].isdigit() and '.' in para_stripped[:3]))
-                content_markers = ['**quick answer', '**', '# ', '## ', '- ', '• ', '•',  # Bullet point (with/without space)
-                                 '1.', '2.', '3.', 'sources',
-                                 '🎯', '📊', '⚡', '💡', '🤔',  # Enhanced template emoji markers
-                                 'what this means', 'deeper understanding', 'practical steps', 
-                                 'extra tips', 'thoughtful next question']  # Enhanced template section keywords
-                has_content_marker = has_bullet_point or any(marker in para_lower for marker in content_markers)
+                has_content_marker = has_bullet_point or any(marker in para_lower for marker in CONTENT_MARKERS)
                 
                 if has_content_marker:
                     clean_paragraphs.append(para)
                     found_content = True
                     continue
                 
-                # Check if paragraph is thinking/reasoning
+                # Check if paragraph is thinking/reasoning (optimized with frozenset)
                 is_thinking = False
                 
                 # Check for thinking indicators at start or in first 150 chars
-                for indicator in thinking_indicators:
-                    if para_lower.startswith(indicator) or f' {indicator}' in para_lower[:150]:
+                para_start = para_lower[:150]
+                for indicator in THINKING_INDICATORS:
+                    if para_lower.startswith(indicator) or f' {indicator}' in para_start:
                         is_thinking = True
                         break
                 
-                # Check for common thinking patterns
-                if para_lower.startswith(('okay', 'so ', 'now ', 'next', 'also', 'for the', 'the user', 'i know', 'i should', 'let me start')):
-                    is_thinking = True
+                # Check for common thinking starters
+                if not is_thinking:
+                    for starter in THINKING_STARTERS:
+                        if para_lower.startswith(starter):
+                            is_thinking = True
+                            break
                 
                 # Check if paragraph is mostly planning language (long paragraphs with thinking words)
-                if len(para_lower) > 100:
-                    thinking_word_count = sum(1 for word in ['should', 'could', 'might', 'need to', 'will', 'must'] if word in para_lower)
+                if not is_thinking and len(para_lower) > 100:
+                    thinking_word_count = sum(1 for word in PLANNING_WORDS if word in para_lower)
                     if thinking_word_count >= 3 and not has_content_marker:
                         is_thinking = True
                 
@@ -754,7 +838,6 @@ class MeetaraGGUFProcessor:
                     clean_paragraphs.append(para)
                     found_content = True
                 elif not found_content:
-                    # Keep thinking if it's before any real content (might be at very start)
                     clean_paragraphs.append(para)
             
             if clean_paragraphs:
@@ -767,34 +850,18 @@ class MeetaraGGUFProcessor:
             for pattern in PLACEHOLDER_PATTERNS:
                 response_text = pattern.sub('', response_text)
             
-            # Remove generic placeholder brackets like [text here] that weren't replaced
-            # But preserve legitimate brackets like [1], [2], [a], [b] for citations
-            response_text = re.sub(r'\[[^\]]{10,}\]', '', response_text)  # Remove brackets with 10+ chars inside
+            # Remove generic placeholder brackets (using pre-compiled pattern)
+            response_text = LONG_BRACKETS_PATTERN.sub('', response_text)
             
-            # Remove empty bullet points that result from placeholder removal
-            response_text = re.sub(r'^-\s*$', '', response_text, flags=re.MULTILINE)
-            response_text = re.sub(r'^\d+\.\s*$', '', response_text, flags=re.MULTILINE)
+            # Remove empty bullet points (using pre-compiled patterns)
+            response_text = EMPTY_BULLET_PATTERN.sub('', response_text)
+            response_text = EMPTY_NUMBERED_PATTERN.sub('', response_text)
             
-            # Remove empty sections (section header with no content before next section)
-            # Pattern: **Section Name** followed by only whitespace/newlines and then immediately another **Section**
-            response_text = re.sub(
-                r'\*\*[^*]+\*\*\s*\n{2,}(?=\*\*[^*]+\*\*)',
-                '', response_text, flags=re.MULTILINE
-            )
+            # Remove empty sections (using pre-compiled pattern)
+            response_text = EMPTY_SECTION_PATTERN.sub('', response_text)
             
-            # Remove placeholder text like "?" or incomplete placeholders
-            response_text = re.sub(r'^\?\s*$', '', response_text, flags=re.MULTILINE)
-            response_text = re.sub(r'^\?\s*Make the offer', '', response_text, flags=re.MULTILINE | re.IGNORECASE)
-            
-            # Remove thinking blocks that appear after sections (more aggressive)
-            # Pattern: Section header followed by thinking text like "The symptoms mentioned..." or "I should present..."
-            response_text = re.sub(
-                r'(\*\*[^*]+\*\*)\s*\n+(?:The (?:symptoms|context|information|data) (?:mentioned|includes|contains|shows)|I should (?:present|include|mention)|This section (?:might|needs|should)|Maybe (?:include|mention)).*?(?=\n\n\*\*|\n\nSources|\Z)',
-                r'\1\n\n', response_text, flags=re.IGNORECASE | re.DOTALL | re.MULTILINE
-            )
-            
-            # Normalize multiple blank lines
-            response_text = re.sub(r'\n{3,}', '\n\n', response_text)
+            # Normalize multiple blank lines (using pre-compiled pattern)
+            response_text = MULTIPLE_NEWLINES_PATTERN.sub('\n\n', response_text)
             
             agent_logger.info(f"🧹 Post-processed response: removed thinking patterns and placeholders")
             
@@ -907,38 +974,26 @@ class MeetaraGGUFProcessor:
             
             # ============================================================
             # FINAL CLEANUP: Remove any remaining thinking that slipped through
+            # Uses pre-compiled patterns and frozensets for efficiency
             # ============================================================
             
             # CRITICAL: Find the last .pdf/.doc source and truncate everything after it
-            # This catches cases where thinking text appears after sources without proper separation
             last_source_match = None
-            for match in re.finditer(r'[-•]\s*[^\n]+\.(?:pdf|doc|docx|txt)[^\n]*', response_text, re.IGNORECASE):
+            for match in SOURCE_FILE_PATTERN.finditer(response_text):
                 last_source_match = match
             
             if last_source_match:
-                # Check if there's significant text after the last source
                 text_after_sources = response_text[last_source_match.end():].strip()
-                # If there's more than just whitespace/punctuation after sources, it's thinking text
                 if text_after_sources and len(text_after_sources) > 10:
-                    # Check if it starts with thinking patterns
-                    thinking_starters = ['let me', 'i should', 'i need', 'wait,', 'the user', 'i\'ll', 'each section', 'the quick', 'under ', 'also,', 'so i', 'first,', 'then,']
-                    if any(text_after_sources.lower().startswith(p) for p in thinking_starters):
+                    # Check if it starts with thinking patterns (using frozenset)
+                    text_lower = text_after_sources.lower()
+                    if any(text_lower.startswith(p) for p in POST_SOURCE_THINKING_STARTERS):
                         response_text = response_text[:last_source_match.end()].strip()
                         agent_logger.warning(f"⚠️ Removed {len(text_after_sources)} chars of thinking text after sources")
             
-            # These are last-resort patterns for text that escaped earlier passes
-            final_cleanup_patterns = [
-                # Sentences starting with meta-commentary
-                r'^(?:The user|I should|I need to|Let me|I know that|The context|According to)[^.!?]*[.!?]\s*',
-                # Sentences with planning language
-                r'(?:Tips could include|Common pitfalls|Expert recommendations could be)[^.!?]*[.!?]\s*',
-                # Self-referential instructions
-                r'(?:Sources need to be cited|Avoid any internal|Check for any markdown|Ensure the sections)[^.!?]*[.!?]\s*',
-                # Incomplete sentences with question marks followed by instructions
-                r'\?\s*(?:Make the offer|This plan can help|Would you like me to)[^.!?]*[.!?]?\s*',
-            ]
-            for pattern in final_cleanup_patterns:
-                response_text = re.sub(pattern, '', response_text, flags=re.IGNORECASE | re.MULTILINE)
+            # Apply pre-compiled final cleanup patterns
+            for pattern in FINAL_CLEANUP_PATTERNS:
+                response_text = pattern.sub('', response_text)
             
             # Remove any lines that are ONLY thinking (no actual content)
             lines = response_text.split('\n')
@@ -952,7 +1007,13 @@ class MeetaraGGUFProcessor:
             response_text = '\n'.join(clean_lines)
             
             # Final normalization
-            response_text = re.sub(r'\n{3,}', '\n\n', response_text).strip()
+            response_text = MULTIPLE_NEWLINES_PATTERN.sub('\n\n', response_text).strip()
+            
+            # ============================================================
+            # STEP 11: AGGRESSIVE END-OF-RESPONSE FILTERING
+            # Remove incomplete endings and artifacts using optimized function
+            # ============================================================
+            response_text = clean_response_ending(response_text)
             
             # ✅ DEBUG: Check if response follows structure
             # Support both standard format and enhanced template format (with emojis)
