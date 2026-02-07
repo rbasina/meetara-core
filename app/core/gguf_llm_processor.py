@@ -159,12 +159,20 @@ SOURCE_FILE_PATTERN = re.compile(r'[-•]\s*[^\n]+\.(?:pdf|doc|docx|txt)[^\n]*',
 # ============================================================
 # Incomplete control tokens at end (like <|, <|im, <|im_, etc.)
 INCOMPLETE_TOKEN_PATTERN = re.compile(r'<\|[^>]*$', re.IGNORECASE)
+# Malformed control tokens (like |<im_start|> or |<im_end|>)
+MALFORMED_TOKEN_PATTERN = re.compile(r'\|<[^>]*>\|?', re.IGNORECASE)
+# Complete control tokens that shouldn't appear
+COMPLETE_TOKEN_PATTERN = re.compile(r'<\|im_(?:start|end)\|>', re.IGNORECASE)
 # Incomplete directives (only /think or /no_think patterns, not fractions)
 INCOMPLETE_DIRECTIVE_PATTERN = re.compile(r'/(?:no_)?think\s*$', re.IGNORECASE)
 # Trailing role labels (Human:, User:, Assistant:)
 TRAILING_ROLE_PATTERN = re.compile(r'\.\s*(?:Human|User|Assistant|System):\s*[^.!?]*$', re.IGNORECASE)
 # Trailing prompt tokens
 TRAILING_PROMPT_PATTERN = re.compile(r'<\|im_(?:start|end)\|>[^.!?]*$', re.IGNORECASE)
+# Hashtag patterns (social media style - not appropriate for medical responses)
+HASHTAG_PATTERN = re.compile(r'\s*#\w+(?:\s+#\w+)*\s*$', re.IGNORECASE)
+# "Stop here" and similar meta-instructions
+STOP_HERE_PATTERN = re.compile(r'\s*(?:Stop here|Remember,)[^.!?]*[.!?]?\s*(?:#\w+\s*)*$', re.IGNORECASE)
 # Long brackets pattern (pre-compiled for efficiency)
 LONG_BRACKETS_PATTERN = re.compile(r'\[[^\]]{10,}\]')
 # Empty bullet pattern
@@ -245,8 +253,11 @@ def clean_response_ending(text: str) -> str:
     
     Handles:
     - Incomplete control tokens (<|im_end, etc.)
+    - Malformed control tokens (|<im_start|>, etc.)
     - Directive fragments (/no_think, /think)
     - Hallucinated conversation continuations (Human:, User:)
+    - Hashtags (#StrokeAwareness, etc.)
+    - Meta-instructions (Stop here, Remember, etc.)
     - Trailing incomplete sentences
     
     Returns:
@@ -258,28 +269,53 @@ def clean_response_ending(text: str) -> str:
     text = text.strip()
     original_len = len(text)
     
-    # Step 1: Remove incomplete control tokens at end
+    # Step 1: Remove malformed control tokens ANYWHERE in text (|<im_start|>, |<im_end|>)
+    text = MALFORMED_TOKEN_PATTERN.sub('', text)
+    
+    # Step 2: Remove complete control tokens that shouldn't appear
+    text = COMPLETE_TOKEN_PATTERN.sub('', text)
+    
+    # Step 3: Remove incomplete control tokens at end
     text = INCOMPLETE_TOKEN_PATTERN.sub('', text)
     
-    # Step 2: Remove incomplete directives (only /think or /no_think patterns)
+    # Step 4: Remove incomplete directives (only /think or /no_think patterns)
     text = INCOMPLETE_DIRECTIVE_PATTERN.sub('', text)
     
-    # Step 3: Remove trailing role labels (Human:, User:, Assistant:)
+    # Step 5: Remove trailing role labels (Human:, User:, Assistant:)
     text = TRAILING_ROLE_PATTERN.sub('.', text)
     
-    # Step 4: Remove trailing prompt tokens
+    # Step 6: Remove trailing prompt tokens
     text = TRAILING_PROMPT_PATTERN.sub('', text)
     
-    # Step 5: Check for truly incomplete endings (conservative approach)
+    # Step 7: Remove "Stop here" and similar meta-instructions with hashtags
+    text = STOP_HERE_PATTERN.sub('', text)
+    
+    # Step 8: Remove trailing hashtags (social media style)
+    text = HASHTAG_PATTERN.sub('', text)
+    
+    # Step 9: Truncate at hallucinated conversation (user/assistant continuation)
+    # Look for patterns like "user\n" or "assistant\n" that indicate fake conversation
+    hallucination_markers = ['\nuser\n', '\nassistant\n', '\n\nuser', '\n\nassistant',
+                            'Could you explain', 'Can you tell me', 'What is']
+    text_lower = text.lower()
+    for marker in hallucination_markers:
+        idx = text_lower.rfind(marker.lower())
+        if idx > len(text) * 0.5:  # Only if in second half of response
+            # Check if this looks like a hallucinated follow-up question
+            after_marker = text[idx:].strip()
+            if '?' in after_marker[:100]:  # Contains a question mark nearby
+                text = text[:idx].strip()
+                agent_logger.info(f"🧹 Truncated hallucinated conversation at: '{marker.strip()}'")
+                break
+    
+    # Step 10: Check for truly incomplete endings (conservative approach)
     text = text.strip()
     if text and text[-1] not in '.!?:;…"\')\]':
         # Only truncate if we can find a proper sentence ending nearby
-        # Look for last proper sentence ending (within last 100 chars)
         for i in range(len(text) - 1, max(0, len(text) - 100), -1):
             if text[i] in '.!?':
                 # Check it's not a decimal or abbreviation
                 if i == len(text) - 1 or text[i + 1] in ' \n':
-                    # Found a proper ending, truncate here
                     truncated = text[:i + 1].strip()
                     if len(truncated) > len(text) * 0.8:  # Don't truncate too much
                         text = truncated
@@ -476,6 +512,23 @@ class MeetaraGGUFProcessor:
             n_threads = os.cpu_count() or 4
             n_batch = 512  # Process 512 tokens at a time (default is 512, can go higher if RAM allows)
             
+            # ✅ BOS (Beginning Of Sequence) Token Detection
+            # BOS tells the model "this is a new conversation" - critical for clean outputs
+            # - Qwen3 thinking models (1.7b, 4b-thinking, 8b) may need explicit BOS
+            # - Qwen3-instruct and Qwen2.5 models work fine without it
+            # Detect model type from filename for BOS decision
+            model_filename = Path(model_path).name.lower()
+            is_qwen3 = 'qwen3' in model_filename or 'qwen-3' in model_filename
+            is_instruct = 'instruct' in model_filename
+            is_thinking = 'thinking' in model_filename
+            
+            # BOS is typically needed for Qwen3 thinking models, not for instruct variants
+            use_bos = is_qwen3 and (is_thinking or not is_instruct)
+            if use_bos:
+                agent_logger.info(f"📍 BOS token enabled for {model_filename} (Qwen3 thinking/base model)")
+            else:
+                agent_logger.debug(f"📍 BOS token: auto (instruct model or non-Qwen3)")
+            
             # Check if GPU is available (CUDA)
             n_gpu_layers = 0  # Default: CPU only
             try:
@@ -534,7 +587,14 @@ class MeetaraGGUFProcessor:
                 load_time = time.time() - start_time
                 device_info = "GPU (CUDA)" if n_gpu_layers != 0 else f"CPU ({n_threads} threads)"
                 spec_info = " + Speculative Decoding" if draft_model else ""
-                agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s on {device_info}{spec_info}")
+                bos_info = " + BOS" if use_bos else ""
+                agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s on {device_info}{spec_info}{bos_info}")
+                
+                # Store BOS preference for this model type (used during generation if needed)
+                if not hasattr(self, '_model_bos_config'):
+                    self._model_bos_config = {}
+                self._model_bos_config[model_type] = use_bos
+                
                 return True
             except Exception as load_error:
                 error_str = str(load_error).lower()
@@ -559,6 +619,10 @@ class MeetaraGGUFProcessor:
                         device_info = "GPU (CUDA)" if n_gpu_layers != 0 else f"CPU ({n_threads} threads)"
                         agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s on {device_info} (without speculative decoding)")
                         agent_logger.warning(f"⚠️ Speculative decoding disabled for this model due to GGUF compatibility")
+                        # Store BOS config for fallback load
+                        if not hasattr(self, '_model_bos_config'):
+                            self._model_bos_config = {}
+                        self._model_bos_config[model_type] = use_bos
                         return True
                     except Exception as retry1_error:
                         agent_logger.warning(f"⚠️ Strategy 1 failed: {retry1_error}")
@@ -579,6 +643,10 @@ class MeetaraGGUFProcessor:
                             device_info = "GPU (CUDA)" if n_gpu_layers != 0 else f"CPU ({n_threads} threads)"
                             agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s on {device_info} (use_mmap=False)")
                             agent_logger.warning(f"⚠️ Memory mapping disabled for this model due to GGUF compatibility")
+                            # Store BOS config for fallback load
+                            if not hasattr(self, '_model_bos_config'):
+                                self._model_bos_config = {}
+                            self._model_bos_config[model_type] = use_bos
                             return True
                         except Exception as retry2_error:
                             agent_logger.warning(f"⚠️ Strategy 2 failed: {retry2_error}")
@@ -596,6 +664,10 @@ class MeetaraGGUFProcessor:
                                 load_time = time.time() - start_time
                                 agent_logger.info(f"✅ {model_type.capitalize()} model loaded in {load_time:.1f}s (minimal parameters)")
                                 agent_logger.warning(f"⚠️ Using minimal parameters due to GGUF compatibility issues")
+                                # Store BOS config for fallback load
+                                if not hasattr(self, '_model_bos_config'):
+                                    self._model_bos_config = {}
+                                self._model_bos_config[model_type] = use_bos
                                 return True
                             except Exception as retry3_error:
                                 agent_logger.error(f"❌ All retry strategies failed. Last error: {retry3_error}")

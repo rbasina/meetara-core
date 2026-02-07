@@ -98,6 +98,19 @@ class ConfigLoader:
         
         return domains
     
+    def get_all_category_names(self) -> List[str]:
+        """Get list of all category names (e.g. business, education, healthcare).
+        
+        Useful for batch upload: --domain business can target vectorstore/business/
+        even though 'business' is a category, not a leaf domain.
+        
+        Returns:
+            List of category names
+        """
+        if not self.domain_config:
+            return []
+        return list(self.domain_config.get('categories', {}).keys())
+    
     def get_tier_config(self, tier: str) -> Dict[str, Any]:
         """Get configuration for a specific tier.
         

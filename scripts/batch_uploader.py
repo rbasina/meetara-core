@@ -468,8 +468,10 @@ def upload_downloaded_documents():
             domain = target_domain_arg
             print(f"  [DOMAIN] Using specified domain: {domain} (no detection)")
         
-        # Validate domain exists in config
-        if domain not in config_loader.get_all_domains():
+        # Validate domain: allow both leaf domains and category names (e.g. --domain business)
+        # Category names create/use vectorstore/<category>/ (e.g. vectorstore/business/)
+        valid_domains = set(config_loader.get_all_domains()) | set(config_loader.get_all_category_names())
+        if domain not in valid_domains:
             log_and_print(f"  [WARNING] Domain '{domain}' not found in config, using 'general_health'")
             domain = "general_health"
         

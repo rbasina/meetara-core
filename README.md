@@ -2,9 +2,9 @@
 
 **Production-ready RAG (Retrieval-Augmented Generation) backend** with emotion-aware responses, multi-domain support, and Hugging Face model integration.
 
-[![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-green.svg)](https://fastapi.tiangolo.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[Python](https://www.python.org/)
+[FastAPI](https://fastapi.tiangolo.com/)
+[License](LICENSE)
 
 ---
 
@@ -60,7 +60,7 @@
 
 ## 🚀 Quick Start
 
-> 📖 **For detailed quick start guide, see [docs/QUICK_START.md](docs/QUICK_START.md)**
+> 📖 **For detailed quick start guide, see [docs/QUICK_START.md**](docs/QUICK_START.md)
 
 ### Prerequisites
 
@@ -72,26 +72,30 @@
 ### Installation
 
 1. **Clone the repository**
+
 ```bash
 git clone <repository-url>
 cd meetara-core
 ```
 
-2. **Create virtual environment**
+1. **Create virtual environment**
+
 ```bash
 python -m venv .venv-meetara
 .venv-meetara\Scripts\activate  # Windows
 # source .venv-meetara/bin/activate  # Linux/Mac
 ```
 
-3. **Install dependencies**
+1. **Install dependencies**
+
 ```bash
 pip install -r requirements.txt
 ```
 
-4. **Install Tesseract OCR (for image text extraction)**
+1. **Install Tesseract OCR (for image text extraction)**
 
 **Windows:**
+
 ```bash
 # Download and install from: https://github.com/UB-Mannheim/tesseract/wiki
 # Or use chocolatey:
@@ -99,18 +103,21 @@ choco install tesseract
 ```
 
 **Linux:**
+
 ```bash
 sudo apt-get install tesseract-ocr
 ```
 
 **macOS:**
+
 ```bash
 brew install tesseract
 ```
 
 > 📝 **Note**: Tesseract is required for extracting text from images in PDFs. The system will work without it, but OCR will be skipped.
 
-5. **Configure environment**
+1. **Configure environment**
+
 ```bash
 # Copy example env file
 cp env.example .env
@@ -118,29 +125,31 @@ cp env.example .env
 # Edit .env and set your configuration (see Configuration section)
 ```
 
-6. **Start the server**
+1. **Start the server**
+
 ```bash
 python main.py
 ```
 
-7. **Verify installation**
+1. **Verify installation**
+
 ```bash
 curl http://localhost:8000/health
 # Should return: {"status": "healthy", ...}
 ```
 
-**🎉 API available at `http://localhost:8000`**
+**🎉 API available at `http://localhost:8000**`
 
 ### Interactive API Documentation
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+- **Swagger UI**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **ReDoc**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 
 ---
 
 ## 🏗️ Architecture
 
-> 📖 **For complete architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
+> 📖 **For complete architecture documentation, see [docs/ARCHITECTURE.md**](docs/ARCHITECTURE.md)
 
 ### System Architecture
 
@@ -153,17 +162,17 @@ curl http://localhost:8000/health
 ┌─────────────────────────────────────────────────────────┐
 │              FastAPI Endpoints (/api/chat)              │
 └────────────────────┬────────────────────────────────────┘
-                      │
-                      ▼
+                     │
+                     ▼
 ┌─────────────────────────────────────────────────────────┐
 │              MeetaraAgent (LangChain Agent)             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
-│  │ Query        │  │ Domain       │  │ RAG          │ │
-│  │ Analyzer     │→ │ Detection    │→ │ Retrieval    │ │
-│  └──────────────┘  └──────────────┘  └──────────────┘ │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐   │
+│  │ Query        │  │ Domain       │  │ RAG          │   │
+│  │ Analyzer     │→ │ Detection    │→ │ Retrieval    │   │
+│  └──────────────┘  └──────────────┘  └──────────────┘   │
 └────────────────────┬────────────────────────────────────┘
-                      │
-                      ▼
+                     │
+                     ▼
 ┌─────────────────────────────────────────────────────────┐
 │         GGUF LLM Processor (meetara-qwen3-1.7b)         │
 │  ┌──────────────────────────────────────────────────┐   │
@@ -266,6 +275,7 @@ MEETARA_HF_MODEL_FILE=meetara-qwen3-1.7b-Q4_K_M.gguf
 ```
 
 **What it does:**
+
 - ✅ `true` → Uses your fine-tuned Meetara model (better responses, domain-aware)
 - ❌ `false` → Falls back to base models (less accurate)
 - 💡 **Recommendation:** Keep `true` for production
@@ -278,6 +288,7 @@ ENABLE_IMAGE_EXTRACTION_DURING_QUERY=false
 ```
 
 **What it does:**
+
 - ✅ `true` → Extracts relevant images during each query (slower, visual context)
 - ❌ `false` → Only extracts during document upload (faster queries)
 - 💡 **Recommendation:** 
@@ -292,6 +303,7 @@ FILTER_RAG_CONTEXT_BY_RELEVANCE=false
 ```
 
 **What it does:**
+
 - ✅ `true` → Filters retrieved documents by keyword matching (stricter)
 - ❌ `false` → Returns all semantically similar documents (more context)
 - 💡 **Recommendation:**
@@ -303,6 +315,7 @@ FILTER_RAG_CONTEXT_BY_RELEVANCE=false
 **Configured in:** `app/core/domain_categorizer.py` → `DOMAIN_SECTIONS`
 
 **What it does:**
+
 - Defines response structure per domain category
 - Healthcare → diagnosis, symptoms, treatment, precautions
 - Education → explanation, examples, practice_questions
@@ -389,6 +402,7 @@ categories:
 ```
 
 **Adding a new domain:**
+
 1. Add domain to `config/domain_config.yaml`
 2. Add keywords to `config/domain_keywords.yaml`
 3. Upload documents via `/api/upload/doc`
@@ -401,6 +415,7 @@ categories:
 ### Core Endpoints
 
 #### Chat Query
+
 ```bash
 POST /api/chat/
 Content-Type: application/json
@@ -418,6 +433,7 @@ Content-Type: application/json
 ```
 
 **Response:**
+
 ```json
 {
   "response": "**Quick Answer:** To improve sleep quality...",
@@ -434,21 +450,25 @@ Content-Type: application/json
 ```
 
 #### Get Available Domains
+
 ```bash
 GET /api/chat/domains/categorized
 ```
 
 #### Get Domain Keywords (for client-side detection)
+
 ```bash
 GET /api/chat/domains/keywords
 ```
 
 #### Get Available Models
+
 ```bash
 GET /api/models/
 ```
 
 **Response:**
+
 ```json
 {
   "default_model": "meetara-qwen3-1.7b-gguf",
@@ -466,6 +486,7 @@ GET /api/models/
 #### Document Upload
 
 **Command Line (cURL):**
+
 ```bash
 # Upload with domain specified
 curl -X POST "http://localhost:8000/api/upload/doc" \
@@ -478,6 +499,7 @@ curl -X POST "http://localhost:8000/api/upload/doc" \
 ```
 
 **Python Script:**
+
 ```bash
 # Single file upload
 python scripts/batch_uploader.py --file document.pdf --domain general_health
@@ -490,7 +512,8 @@ python scripts/batch_uploader.py --file document.pdf --auto-detect
 ```
 
 **UI (Swagger):**
-1. Open http://localhost:8000/docs
+
+1. Open [http://localhost:8000/docs](http://localhost:8000/docs)
 2. Navigate to `/api/upload/doc`
 3. Click "Try it out"
 4. Upload file and execute
@@ -498,13 +521,14 @@ python scripts/batch_uploader.py --file document.pdf --auto-detect
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#-document-upload-guide) for complete upload guide.
 
 #### Health Check
+
 ```bash
 GET /health
 ```
 
 ### Complete API Reference
 
-Visit http://localhost:8000/docs for interactive Swagger documentation.
+Visit [http://localhost:8000/docs](http://localhost:8000/docs) for interactive Swagger documentation.
 
 ---
 
@@ -515,18 +539,21 @@ Visit http://localhost:8000/docs for interactive Swagger documentation.
 Meetara Core supports automatic model download from Hugging Face:
 
 **Configuration:**
+
 ```env
 MEETARA_HF_MODEL_ID=meetara-lab/meetara-qwen3-1.7b-gguf
 MEETARA_HF_MODEL_FILE=meetara-qwen3-1.7b-Q4_K_M.gguf
 ```
 
 **How it works:**
+
 1. **First Request**: Downloads model from HF (~1.2 GB, one-time)
 2. **Caching**: Stores in `~/.cache/huggingface/hub` (standard HF cache)
 3. **Loading**: Loads model once into memory
 4. **Reuse**: Same model instance used for all requests
 
 **Performance:**
+
 - First request: ~2-3 minutes (download + load)
 - Subsequent requests: ~30-35 seconds (generation only)
 
@@ -539,6 +566,7 @@ Request → Check Cache → Download (if needed) → Load (once) → Reuse
 ### Custom Cache Location
 
 To use a custom cache directory:
+
 ```env
 # Example: Use a custom directory for model cache
 MEETARA_MODEL_CACHE_DIR=/path/to/custom/cache
@@ -555,6 +583,7 @@ MEETARA_MODEL_CACHE_DIR=/path/to/custom/cache
 ### Adding a New Domain
 
 1. **Add to `config/domain_config.yaml`:**
+
 ```yaml
 categories:
   your_category:
@@ -565,13 +594,15 @@ categories:
         priority: 2
 ```
 
-2. **Add keywords to `config/domain_keywords.yaml`:**
+1. **Add keywords to `config/domain_keywords.yaml`:**
+
 ```yaml
 your_domain:
   keywords: ["keyword1", "keyword2", "phrase"]
 ```
 
-3. **Upload documents:**
+1. **Upload documents:**
+
 ```bash
 curl -X POST http://localhost:8000/api/upload/doc \
   -F "file=@your_document.pdf" \
@@ -583,6 +614,7 @@ curl -X POST http://localhost:8000/api/upload/doc \
 ### Adding a New Tool
 
 1. Create tool in `app/agent/tools/your_tool.py`:
+
 ```python
 from langchain_core.tools import BaseTool
 
@@ -595,7 +627,8 @@ class YourTool(BaseTool):
         return result
 ```
 
-2. Add to agent in `app/agent/planner.py`:
+1. Add to agent in `app/agent/planner.py`:
+
 ```python
 tools.append(YourTool())
 ```
@@ -650,6 +683,7 @@ docker-compose up -d
 **Issue**: Model download fails or model not found
 
 **Solutions:**
+
 1. Check internet connection (for HF download)
 2. Verify `MEETARA_HF_MODEL_ID` and `MEETARA_HF_MODEL_FILE` in `.env`
 3. Check disk space (~2 GB needed)
@@ -661,6 +695,7 @@ docker-compose up -d
 **Issue**: Query routed to wrong domain
 
 **Solutions:**
+
 1. Check `config/domain_keywords.yaml` has relevant keywords
 2. Verify domain exists in `config/domain_config.yaml`
 3. Use `context.domain` to explicitly specify domain
@@ -671,6 +706,7 @@ docker-compose up -d
 **Issue**: Responses take too long
 
 **Solutions:**
+
 1. First request includes model download (one-time)
 2. Reduce `LOCAL_LLM_MAX_LENGTH` in `.env`
 3. Reduce `LLM_CONTEXT_LENGTH` in `.env`
@@ -682,6 +718,7 @@ docker-compose up -d
 **Issue**: Port 8000 already in use
 
 **Solutions:**
+
 ```bash
 # Windows
 netstat -ano | findstr :8000
@@ -700,14 +737,16 @@ API_PORT=8001
 
 ### Typical Performance
 
-| Operation | Time | Notes |
-|-----------|------|-------|
-| Model Download | ~99s | One-time only |
-| Model Load | ~1.6s | One-time only |
-| Domain Detection | ~0.2-0.4s | Per request |
-| RAG Retrieval | ~0.2-0.5s | Per request |
-| LLM Generation | ~30-45s | Per request |
+
+| Operation          | Time        | Notes            |
+| ------------------ | ----------- | ---------------- |
+| Model Download     | ~99s        | One-time only    |
+| Model Load         | ~1.6s       | One-time only    |
+| Domain Detection   | ~0.2-0.4s   | Per request      |
+| RAG Retrieval      | ~0.2-0.5s   | Per request      |
+| LLM Generation     | ~30-45s     | Per request      |
 | **Total (cached)** | **~30-35s** | After first load |
+
 
 ### Optimization Tips
 
@@ -723,11 +762,13 @@ API_PORT=8001
 ### Publishing to Hugging Face Hub
 
 **Quick publish using PowerShell script:**
+
 ```powershell
 .\scripts\publish_vectorstore.ps1 -Domain "general_health" -RepoId "meetara-lab/vectorstore-general_health"
 ```
 
 **Using API:**
+
 ```bash
 curl -X POST "http://localhost:8000/api/vectorstore/publish" \
   -H "Authorization: Bearer YOUR_HF_TOKEN" \
@@ -743,6 +784,7 @@ See [HF Publishing Guide](docs/HF_PUBLISHING_GUIDE.md) for detailed instructions
 ### Loading from Hugging Face Hub
 
 **Python:**
+
 ```python
 from app.rag.hf_publisher import load_vectorstore_from_hub
 
@@ -753,6 +795,7 @@ vectorstore = load_vectorstore_from_hub(
 ```
 
 **API:**
+
 ```bash
 curl -X POST "http://localhost:8000/api/vectorstore/load-from-hub" \
   -H "Content-Type: application/json" \
@@ -765,11 +808,13 @@ curl -X POST "http://localhost:8000/api/vectorstore/load-from-hub" \
 ### Validation
 
 **Validate vectorstore quality:**
+
 ```bash
 python scripts/validate_vectorstore.py general_health
 ```
 
 **Check size and statistics:**
+
 ```bash
 # Single domain
 python scripts/check_size.py general_health
@@ -781,16 +826,19 @@ python scripts/check_size.py all
 ### Cleanup Operations
 
 **Clear domain (remove all documents):**
+
 ```bash
 python scripts/clear_domain.py clear general_health
 ```
 
 **VACUUM database (reclaim space, reduce bloat):**
+
 ```bash
 python scripts/vacuum_domain.py general_health
 ```
 
 **Complete domain deletion:**
+
 ```bash
 python scripts/clear_domain.py delete general_health --delete-db
 ```
@@ -840,7 +888,7 @@ See [Vectorstore Validation Guide](docs/VECTORSTORE_VALIDATION.md) and [Data Man
 
 ### Documentation
 
-- **API Docs**: http://localhost:8000/docs (Swagger UI)
+- **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI)
 - **Archived Docs**: `docs/archive/` (historical documentation)
 
 ---
@@ -850,6 +898,7 @@ See [Vectorstore Validation Guide](docs/VECTORSTORE_VALIDATION.md) and [Data Man
 See [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed contribution guidelines.
 
 Quick steps:
+
 1. Fork the repository
 2. Create feature branch (`git checkout -b feature/amazing-feature`)
 3. Make changes with tests
@@ -882,15 +931,15 @@ MIT License - see LICENSE file for details
 - **[HF Publishing Guide](docs/HF_PUBLISHING_GUIDE.md)** - Publishing vectorstores to Hugging Face Hub
 - **[Vectorstore Validation Guide](docs/VECTORSTORE_VALIDATION.md)** - Validating vectorstore quality
 - **[Git Setup Guide](docs/GIT_SETUP.md)** - Setting up Git LFS for compressed data files
-- **API Docs**: http://localhost:8000/docs (Swagger UI)
+- **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger UI)
 
 ---
 
 ## 🆘 Support
 
 - **Issues**: [GitHub Issues](https://github.com/your-org/meetara-core/issues)
-- **API Docs**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/health
+- **API Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
+- **Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
 
 ---
 

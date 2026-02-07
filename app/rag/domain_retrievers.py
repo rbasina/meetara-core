@@ -2,6 +2,7 @@
 Domain-specific vector retrievers for Meetara Core RAG system.
 """
 import os
+import shutil
 import sqlite3
 import threading
 import hashlib
@@ -135,35 +136,50 @@ class DomainRetriever:
     
     def _initialize_vectorstore(self):
         """Initialize or load the vector store for this domain with optimized settings."""
+        # Optimized ChromaDB settings for better performance
+        optimized_metadata = {
+            "hnsw:space": "cosine",  # Cosine similarity (best for embeddings)
+            "hnsw:M": "16",  # Number of connections (higher = better accuracy, slower)
+            "hnsw:ef_construction": "200",  # EF construction (higher = better quality)
+            "hnsw:ef_search": "50",  # EF search (higher = better recall, slower)
+        }
+
+        def _create_new_store():
+            self.domain_path.mkdir(parents=True, exist_ok=True)
+            self.vectorstore = Chroma(
+                persist_directory=str(self.domain_path),
+                embedding_function=self.embeddings,
+                collection_metadata=optimized_metadata
+            )
+            rag_logger.info(f"Created new optimized vector store for domain: {self.domain}")
+
         try:
-            # Optimized ChromaDB settings for better performance
-            optimized_metadata = {
-                "hnsw:space": "cosine",  # Cosine similarity (best for embeddings)
-                "hnsw:M": "16",  # Number of connections (higher = better accuracy, slower)
-                "hnsw:ef_construction": "200",  # EF construction (higher = better quality)
-                "hnsw:ef_search": "50",  # EF search (higher = better recall, slower)
-            }
-            
             if self.domain_path.exists() and any(self.domain_path.iterdir()):
                 # Load existing vector store (don't pass metadata to avoid conflicts)
-                self.vectorstore = Chroma(
-                    persist_directory=str(self.domain_path),
-                    embedding_function=self.embeddings
-                )
-                rag_logger.info(f"Loaded existing vector store for domain: {self.domain}")
+                try:
+                    self.vectorstore = Chroma(
+                        persist_directory=str(self.domain_path),
+                        embedding_function=self.embeddings
+                    )
+                    rag_logger.info(f"Loaded existing vector store for domain: {self.domain}")
+                except Exception as load_err:
+                    err_msg = str(load_err).lower()
+                    # Incompatible HNSW segment metadata (e.g. after Chroma upgrade or corrupted index)
+                    if "hnsw" in err_msg and ("segment" in err_msg or "parse" in err_msg or "metadata" in err_msg):
+                        rag_logger.warning(
+                            f"Vector store for domain '{self.domain}' has incompatible HNSW metadata "
+                            f"(e.g. ChromaDB version change). Recreating empty store; re-upload documents to repopulate."
+                        )
+                        shutil.rmtree(self.domain_path, ignore_errors=True)
+                        _create_new_store()
+                    else:
+                        raise
             else:
-                # Create new vector store with optimized settings
-                self.domain_path.mkdir(parents=True, exist_ok=True)
-                self.vectorstore = Chroma(
-                    persist_directory=str(self.domain_path),
-                    embedding_function=self.embeddings,
-                    collection_metadata=optimized_metadata
-                )
-                rag_logger.info(f"Created new optimized vector store for domain: {self.domain}")
-            
+                _create_new_store()
+
             # Apply SQLite optimizations after ChromaDB initialization
             self._optimize_sqlite()
-            
+
         except Exception as e:
             rag_logger.error(f"Failed to initialize vector store for domain {self.domain}: {e}")
             raise
