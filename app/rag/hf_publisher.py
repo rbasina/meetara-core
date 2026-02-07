@@ -424,6 +424,51 @@ class VectorstorePublisher:
                     "Exam preparation",
                     "Subject-specific tutoring"
                 ]
+            },
+            "accounting": {
+                "summary": (
+                    "This knowledge base covers core accounting concepts, principles, and practices. "
+                    "It includes topics such as financial statements, bookkeeping, GAAP/IFRS standards, "
+                    "auditing, tax fundamentals, and corporate finance. Use it to answer questions about "
+                    "accounting terminology, reporting standards, financial analysis, and practical accounting workflows."
+                ),
+                "example_queries": [
+                    "What are the main components of a balance sheet?",
+                    "How to record journal entries for accruals?",
+                    "Explain GAAP vs IFRS accounting standards",
+                    "What is the double-entry bookkeeping system?",
+                    "How to prepare a cash flow statement?"
+                ],
+                "use_cases": [
+                    "Accounting concept lookup and explanation",
+                    "Financial reporting and standards reference",
+                    "Bookkeeping and journal entry guidance",
+                    "Audit and compliance information",
+                    "Corporate finance and analysis"
+                ]
+            },
+            "economics": {
+                "summary": (
+                    "This knowledge base covers economics concepts, theories, and applications. "
+                    "It includes topics such as microeconomics, macroeconomics, market structures, "
+                    "supply and demand, monetary and fiscal policy, trade, and economic indicators. "
+                    "Use it to answer questions about economic principles, policy analysis, market behavior, "
+                    "and real-world economic phenomena."
+                ),
+                "example_queries": [
+                    "What is the law of supply and demand?",
+                    "Explain inflation and its causes",
+                    "What are the effects of interest rate changes?",
+                    "How do markets reach equilibrium?",
+                    "What is GDP and how is it measured?"
+                ],
+                "use_cases": [
+                    "Economics concept explanation and lookup",
+                    "Policy analysis and evaluation",
+                    "Market behavior and theory reference",
+                    "Economic indicators interpretation",
+                    "Trade and international economics"
+                ]
             }
         }
         
@@ -649,6 +694,8 @@ source_datasets:
 ## Overview
 
 This dataset contains pre-computed vector embeddings for the **{domain.replace('_', ' ')}** domain, ready for use in Retrieval-Augmented Generation (RAG) applications, semantic search, and knowledge base systems. The embeddings are generated from high-quality source documents using state-of-the-art sentence transformers, making it easy to build production-ready RAG applications without the computational overhead of embedding generation.
+
+{("### What This Knowledge Base Covers\n\n" + domain_examples["summary"]) if domain_examples.get("summary") else ""}
 
 ## Key Features
 
